@@ -1,0 +1,65 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+	"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<!-- 
+	000000book
+	<canvas> GML playback, take 1
+	jamie dubs <http://github.com/jamiew>
+-->
+<html>
+<body bgcolor="#000000">
+
+  <canvas id="canvas" width="800" height="600" style="margin: auto; border: 1px solid #bbb;"></canvas>
+
+  <!-- Your Code -->
+  <script id="sketch">
+	void setup() {
+		size(800,600);
+		frameRate(30);
+		background(0);
+		smooth();
+
+		// read the GML -- it's stored in json in another script loaded below		
+		// FIXME just reading the first stroke  
+		strokes = gml.tag.drawing.stroke;
+		pts = strokes[0].pt;
+	}
+
+	void draw() {
+
+		i = frameCount % pts.length;
+		prev = pts[i-1];
+		pt = pts[i];
+
+		// TODO sync with timecode
+		// best practices with this? sysclock?
+
+		dimx = (prev.x -pt.x)*width;
+		dimy = (prev.y -pt.y)*width;
+		hyp = 1/(sqrt(pow(dimx,2),pow(dimy,2))+20);
+
+		strokeWeight(hyp * 200);
+		stroke(255);
+
+		// line(random(width),random(height),random(width),random(height));   
+		line(prev.x*width, prev.y*height, pt.x*width, pt.y*height);
+		// rotate based on curve movement?
+		// rotate();
+
+	}
+  </script>
+
+  <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.3.2/jquery.min.js" type="text/javascript" charset="utf-8"></script>
+  <script src="gml.js" type="text/javascript" charset="utf-8"></script>
+
+
+
+  <!-- Sketch Initializer -->
+
+  <script>(function(){var init=function(){var canvas=document.getElementById("canvas");var sketch=document.getElementById("sketch").text;Processing(canvas,sketch);}
+  addEventListener("DOMContentLoaded", init, false);})();</script>
+
+  <!-- Processing.min.js -->
+  <script src="processing.min.js" type="text/javascript" charset="utf-8"></script>
+
+</body>
+</html>
