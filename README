@@ -1,0 +1,20 @@
+A quick stab at drawing GML (Graffiti Markup Language) data using Processing.js
+powered by javscript, HTML5 <canvas>, and http://000000book.com
+
+Demo version here: http://jamiedubs.com/canvasplayer
+
+GML data downloaded from 000000book, which is an open database of GML files
+http://000000book.com/data/147.json
+http://000000book.com/data/147.gml
+http://000000book.com/data/147
+
+
+We'll be posting more demos of messing with GML, stay tuned:
+http://fffff.at
+
+IRC channel is #fatlab on irc.freenode.net
+irc://irc.freenode.net/#fatlab
+
+
+Public domain Free Art & Technology (F.A.T.) Lab. No rights reserved
+
