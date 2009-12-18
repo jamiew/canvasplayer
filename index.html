@@ -2,19 +2,34 @@
 	"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <!-- 
 	000000book
-	<canvas> GML playback, take 1
-	jamie dubs <http://github.com/jamiew>
+	<canvas> GML playback with Processing.js, take 1
+	Jamie Dubs <http://github.com/jamiew>
 -->
 <html>
-<body bgcolor="#000000">
+<head>
+	<title>canvasplayer: GML Playback using Processing.js</title>
+	<style type="text/css" media="screen">
+		body { background: #fff; color: #222; font-family: sans-serif; width: 810px; margin: 0 auto; text-align: center; }
+		h1 { letter-spacing: -1px; color: #000; }
+		h2 { font-family: "Arial", sans-serif; font-weight: normal; }
+		a, a:hover { color: #884; }
+		canvas { margin: 0 auto; background-color: #000; border: 5px solid #222; }
+	</style>
+</head>
+<body>
+	<h1>canvasplayer: GML Playback using Processing.js</h1>
+  <canvas id="canvas" width="800" height="600"></canvas>
+	<p>
+		Code available at <a href="http://github.com/jamiew/canvasplayer">github.com/jamiew/canvasplayer</a>		
+		&mdash; data from <a href="http://000000book.com">http://000000book.com</a></p>
 
-  <canvas id="canvas" width="800" height="600" style="margin: auto; border: 1px solid #bbb;"></canvas>
 
-  <!-- Your Code -->
-  <script id="sketch">
+
+  <!-- Our Code! -->
+  <script id="sketch" type="text/javascript">
 	void setup() {
 		size(800,600);
-		frameRate(30);
+		frameRate(90);
 		background(0);
 		smooth();
 
@@ -24,41 +39,36 @@
 		pts = strokes[0].pt;
 	}
 
-	void draw() {
-
+	// TODO: use the time data instead of just doing continuous playback
+	void draw() {		
+		
 		i = frameCount % pts.length;
 		prev = pts[i-1];
 		pt = pts[i];
-
-		// TODO sync with timecode
-		// best practices with this? sysclock?
-
+		
 		dimx = (prev.x -pt.x)*width;
-		dimy = (prev.y -pt.y)*width;
-		hyp = 1/(sqrt(pow(dimx,2),pow(dimy,2))+20);
+		dimy = (prev.y -pt.y)*height;
+		hyp = 1/(sqrt(pow(dimx,2),pow(dimy,2)) + 25);
 
+		// a manual from-iPhone transformation; TODO: should read this from the GML!
+		translate(0, 820);
+		rotate(80);
+
+		// Finally... draw!
 		strokeWeight(hyp * 200);
-		stroke(255);
-
-		// line(random(width),random(height),random(width),random(height));   
+		stroke(255);		
 		line(prev.x*width, prev.y*height, pt.x*width, pt.y*height);
-		// rotate based on curve movement?
-		// rotate();
 
 	}
   </script>
 
-  <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.3.2/jquery.min.js" type="text/javascript" charset="utf-8"></script>
+	<!-- the GML data, stored locally -->
+	<!-- this was downloaded from 000000book and manually converted to JSON - this feature will be builtin shortly -->
   <script src="gml.js" type="text/javascript" charset="utf-8"></script>
 
-
-
   <!-- Sketch Initializer -->
-
   <script>(function(){var init=function(){var canvas=document.getElementById("canvas");var sketch=document.getElementById("sketch").text;Processing(canvas,sketch);}
   addEventListener("DOMContentLoaded", init, false);})();</script>
-
-  <!-- Processing.min.js -->
   <script src="processing.min.js" type="text/javascript" charset="utf-8"></script>
 
 </body>
