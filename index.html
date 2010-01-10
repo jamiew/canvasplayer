@@ -12,7 +12,7 @@
 		body { background: #fff; color: #222; font-family: sans-serif; width: 810px; margin: 0 auto; text-align: center; }
 		h1 { letter-spacing: -1px; color: #000; }
 		h2 { font-family: "Arial", sans-serif; font-weight: normal; }
-		a, a:hover { color: #884; }
+		a, a:hover { color: #995; }
 		canvas { margin: 0 auto; background-color: #000; border: 5px solid #222; }
 	</style>
 </head>
@@ -23,20 +23,31 @@
 		Code available at <a href="http://github.com/jamiew/canvasplayer">github.com/jamiew/canvasplayer</a>		
 		&mdash; data from <a href="http://000000book.com">http://000000book.com</a></p>
 
-
-
-  <!-- Our Code! -->
+	
+	<!-- Our Code! -->
   <script id="sketch" type="text/javascript">
-	void setup() {
-		size(800,600);
-		frameRate(90);
-		background(0);
-		smooth();
 
-		// read the GML -- it's stored in json in another script loaded below		
-		// FIXME just reading the first stroke  
+	// var gml = {};
+	
+	void setup() {
+		console.log("setup()");
+		console.log(gml);
+
+		// setup our canvas
+		size(800,600);
+		frameRate(60);
+		background(0);
+		// smooth();
+
+		// read the GML, loaded via the #000000book JSON callback below
+		pts = []
 		strokes = gml.tag.drawing.stroke;
-		pts = strokes[0].pt;
+		for(i in strokes){ 
+			console.log('reading stroke '+i);
+			pts = pts.concat(strokes[i].pt);
+			//blank array in b/w strokes 
+			pts.push(undefined); 
+		}
 	}
 
 	// TODO: use the time data instead of just doing continuous playback
@@ -46,30 +57,54 @@
 		prev = pts[i-1];
 		pt = pts[i];
 		
+		// clear on restart (first frame)
+		if(i == 0){ background(0); }
+
+		// if missing current pt, we are skipping
+		if(pt == undefined || pt == []){ return; }
+		
+		// if missing the prev, we're at the beginning of a new stroke
+		if(prev == undefined || prev == []){ prev = pt; }		
+		
+		// calculations
 		dimx = (prev.x -pt.x)*width;
 		dimy = (prev.y -pt.y)*height;
 		hyp = 1/(sqrt(pow(dimx,2),pow(dimy,2)) + 25);
 
 		// a manual from-iPhone transformation; TODO: should read this from the GML!
-		translate(0, 820);
+		translate(0, 750);
 		rotate(80);
 
 		// Finally... draw!
+		// console.log('stroke prev.x='+prev.x+' prev.y='+prev.y+' pt.x='+pt.x+' pt.y='+pt.y+' |  dimx='+dimx+' dimy='+dimy+' hyp='+hyp);
 		strokeWeight(hyp * 200);
 		stroke(255);		
 		line(prev.x*width, prev.y*height, pt.x*width, pt.y*height);
 
 	}
-  </script>
-
-	<!-- the GML data, stored locally -->
-	<!-- this was downloaded from 000000book and manually converted to JSON - this feature will be builtin shortly -->
-  <script src="gml.js" type="text/javascript" charset="utf-8"></script>
-
-  <!-- Sketch Initializer -->
-  <script>(function(){var init=function(){var canvas=document.getElementById("canvas");var sketch=document.getElementById("sketch").text;Processing(canvas,sketch);}
-  addEventListener("DOMContentLoaded", init, false);})();</script>
+  </script>  
+		
+	<!-- Sketch Initializer -->
+  <!--<script>(function(){
+		var init = function(){ var canvas=document.getElementById("canvas");var sketch=document.getElementById("sketch").text;Processing(canvas,sketch); }
+	  /*addEventListener("DOMContentLoaded", init, false);*/
+	})();</script>-->
   <script src="processing.min.js" type="text/javascript" charset="utf-8"></script>
-
+	
+	
+	<!-- the GML data, served from #000000book and initialized in a callback -->
+	<script type="text/javascript" charset="utf-8">
+		function load_gml(data){
+			gml = data.gml;
+			console.log("load_gml()");
+			console.log(gml);
+			var canvas = document.getElementById("canvas"); 
+			var sketch = document.getElementById("sketch").text; 
+			var p = Processing(canvas, sketch, gml); 
+		};
+	</script>
+	<script src="http://000000book.com/data/148.json?callback=load_gml" type="text/javascript" charset="utf-8"></script>
+	
+	
 </body>
 </html>
