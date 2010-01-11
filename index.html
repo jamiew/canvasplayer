@@ -61,7 +61,7 @@
 		// read orientation/scaling headers from the GML
 		// FIXME - DustTag GML not specifying a orientation/scaling, so we're explicitly fixing known iPhone apps
 		var app_name = gml.tag.header && gml.tag.header.client && gml.tag.header.client.name;
-		if(app_name == 'Graffiti Analysis 2.0: DustTag' || app_name == 'DustTag: Graffiti Analysis 2.0' || app_name == 'Fat Tag - Deluxe Katsu Edition'){
+		if(app_name == 'Graffiti Analysis 2.0: DustTag' || app_name == 'DustTag: Graffiti Analysis 2.0' || app_name == 'Fat Tag - Katsu Edition'){
 			rotation = 80;
 			translation = [0, 800]; // still gets cropped; should scale down all values
 			console.log('GML is known iPhone app, scaling...');
