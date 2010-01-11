@@ -2,11 +2,13 @@
 	"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <!-- 
 	000000book
-	<canvas> GML playback with Processing.js, take 2
-	Jamie Dubs <http://github.com/jamiew>
-	
+	Graffiti Markup Language (GML) playback using HTML5 canvas and Processing.js
+
+	by Jamie Dubs <http://github.com/jamiew>
+
+	v2: supports multiple strokes, looping, better stage positioning	
 	TODO: 
-		* use time data in play back (right now it's continuous time = boring)
+		* use time data in play back (right now it's continuous time... boring)
 		* draw curves instead of simple lines
 -->
 <html>
@@ -125,13 +127,14 @@
 	</script>
 	
 	<script src="http://000000book.com/data/161.json?callback=load_gml" type="text/javascript" charset="utf-8"></script>	
-	<!-- Some cool tags:
-		/data/latest.json
-		/data/random.json
-		/data/148 : hello world
-		/data/161 : Katsu
-		/data/158 : Jesus Saves	
-		/data/818 : Hell
+	<!-- 
+		Some cool tags:
+		* /data/latest.json
+		* /data/random.json
+		* /data/148 : hello world
+		* /data/161 : Katsu
+		* /data/158 : Jesus Saves	
+		* /data/818 : Hell
 	-->
 	
 	
