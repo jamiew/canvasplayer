@@ -2,108 +2,137 @@
 	"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <!-- 
 	000000book
-	<canvas> GML playback with Processing.js, take 1
+	<canvas> GML playback with Processing.js, take 2
 	Jamie Dubs <http://github.com/jamiew>
+	
+	TODO: 
+		* use time data in play back (right now it's continuous time = boring)
+		* draw curves instead of simple lines
 -->
 <html>
 <head>
 	<title>canvasplayer: GML Playback using Processing.js</title>
 	<style type="text/css" media="screen">
-		body { background: #fff; color: #222; font-family: sans-serif; width: 810px; margin: 0 auto; text-align: center; }
+		body { background: #fff; color: #222; font-family: sans-serif;margin: 0 auto; text-align: center; }
+		body, canvas { width: 800px; }
+		canvas { height: 600px; background-color: #000; border: 5px solid #222; }		
+		a, a:hover { color: #9f9f77; }
 		h1 { letter-spacing: -1px; color: #000; }
 		h2 { font-family: "Arial", sans-serif; font-weight: normal; }
-		a, a:hover { color: #995; }
-		canvas { margin: 0 auto; background-color: #000; border: 5px solid #222; }
+		#loading { position: absolute; margin: -5px 0 0 -10px; }
 	</style>
 </head>
 <body>
-	<h1>canvasplayer: GML Playback using Processing.js</h1>
-  <canvas id="canvas" width="800" height="600"></canvas>
+	<div id="loading"><img src="http://www.histats.com/images/loading1.gif" alt="" title="" /></div>		
+	<h1>canvasplayer: GML Playback using Processing.js</h1>	
+  <canvas id="canvas"></canvas>
 	<p>
 		Code available at <a href="http://github.com/jamiew/canvasplayer">github.com/jamiew/canvasplayer</a>		
-		&mdash; data from <a href="http://000000book.com">http://000000book.com</a></p>
+		&mdash; data from <a href="http://000000book.com">http://000000book.com</a>
+	</p>
 
 	
 	<!-- Our Code! -->
   <script id="sketch" type="text/javascript">
 
-	// var gml = {};
-	
+	// big TODO: use the time data instead of just doing continuous time playback
 	void setup() {
 		console.log("setup()");
 		console.log(gml);
 
 		// setup our canvas
-		size(800,600);
+		size(800, 600);
 		frameRate(60);
 		background(0);
 		// smooth();
 
-		// read the GML, loaded via the #000000book JSON callback below
+		// read data from the GML (GSON), loaded via #000000book JSONp callback
+		// the <script> tag is finicky if not at the bottom of the page, after the Processing.js sketch
 		pts = []
-		strokes = gml.tag.drawing.stroke;
+		strokes = (gml.tag.drawing.stroke instanceof Array ? gml.tag.drawing.stroke : [gml.tag.drawing.stroke]);
 		for(i in strokes){ 
-			console.log('reading stroke '+i);
+			// console.log("reading stroke "+i);
 			pts = pts.concat(strokes[i].pt);
-			//blank array in b/w strokes 
-			pts.push(undefined); 
+			pts.push(undefined); //blank obj to indicate new stroke
 		}
+		
+		// read orientation/scaling headers from the GML
+		// FIXME - DustTag GML not specifying a orientation/scaling, so we're explicitly fixing known iPhone apps
+		var app_name = gml.tag.header && gml.tag.header.client && gml.tag.header.client.name;
+		if(app_name == 'Graffiti Analysis 2.0: DustTag' || app_name == 'DustTag: Graffiti Analysis 2.0' || app_name == 'Fat Tag - Deluxe Katsu Edition'){
+			rotation = 80;
+			translation = [0, 800]; // still gets cropped; should scale down all values
+			console.log('GML is known iPhone app, scaling...');
+		} else {
+			rotation = 0;
+			translation = [0, 0];
+			console.log("Unknown appplication source: "+app_name);		
+			// console.log(gml.tag.header);
+		}
+		console.log("rotation="+rotation+" translation="+translation);
 	}
 
-	// TODO: use the time data instead of just doing continuous playback
-	void draw() {		
-		
+	void draw() {
 		i = frameCount % pts.length;
 		prev = pts[i-1];
 		pt = pts[i];
 		
-		// clear on restart (first frame)
-		if(i == 0){ background(0); }
-
-		// if missing current pt, we are skipping
-		if(pt == undefined || pt == []){ return; }
-		
-		// if missing the prev, we're at the beginning of a new stroke
-		if(prev == undefined || prev == []){ prev = pt; }		
+		// drawing rules
+		if(i == 0){ background(0); } // clear on restart (first frame)
+		if(pt == undefined || pt == []){ return; } // if missing current pt, we are skipping		
+		if(prev == undefined || prev == []){ prev = pt; } // if missing the prev, we're at the beginning of a new stroke
 		
 		// calculations
 		dimx = (prev.x -pt.x)*width;
 		dimy = (prev.y -pt.y)*height;
 		hyp = 1/(sqrt(pow(dimx,2),pow(dimy,2)) + 25);
-
-		// a manual from-iPhone transformation; TODO: should read this from the GML!
-		translate(0, 750);
-		rotate(80);
-
-		// Finally... draw!
 		// console.log('stroke prev.x='+prev.x+' prev.y='+prev.y+' pt.x='+pt.x+' pt.y='+pt.y+' |  dimx='+dimx+' dimy='+dimy+' hyp='+hyp);
+
+		// transform display space if specified
+		translate(translation[0], translation[1]);
+		rotate(rotation);
+
+		// finally... draw!
 		strokeWeight(hyp * 200);
 		stroke(255);		
 		line(prev.x*width, prev.y*height, pt.x*width, pt.y*height);
 
 	}
-  </script>  
-		
-	<!-- Sketch Initializer -->
-  <!--<script>(function(){
-		var init = function(){ var canvas=document.getElementById("canvas");var sketch=document.getElementById("sketch").text;Processing(canvas,sketch); }
-	  /*addEventListener("DOMContentLoaded", init, false);*/
-	})();</script>-->
-  <script src="processing.min.js" type="text/javascript" charset="utf-8"></script>
+  </script>
+  <script src="processing.min.js" type="text/javascript" charset="utf-8"></script>			
+
 	
-	
-	<!-- the GML data, served from #000000book and initialized in a callback -->
+	<!-- the GML data, served from #000000book and initialized in a callback -->	
 	<script type="text/javascript" charset="utf-8">
+
+		// mock console.log() if no Firebug etc. 
+		if(!console || !console.log) {
+			var console = new Array();
+			console.log = function () {}
+		}
+
+ 		// callback method
 		function load_gml(data){
 			gml = data.gml;
-			console.log("load_gml()");
-			console.log(gml);
+			document.getElementById("loading").innerHTML = '';
+			// console.log("load_gml()");
+			// console.log(gml);
 			var canvas = document.getElementById("canvas"); 
 			var sketch = document.getElementById("sketch").text; 
 			var p = Processing(canvas, sketch, gml); 
 		};
+
 	</script>
-	<script src="http://000000book.com/data/148.json?callback=load_gml" type="text/javascript" charset="utf-8"></script>
+	
+	<script src="http://000000book.com/data/161.json?callback=load_gml" type="text/javascript" charset="utf-8"></script>	
+	<!-- Some cool tags:
+		/data/latest.json
+		/data/random.json
+		/data/148 : hello world
+		/data/161 : Katsu
+		/data/158 : Jesus Saves	
+		/data/818 : Hell
+	-->
 	
 	
 </body>
