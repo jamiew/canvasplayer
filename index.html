@@ -78,6 +78,8 @@
 
 	void draw() {
 		i = frameCount % pts.length;
+		if(i == pts.length - 1){ console.log(serialize(document.getElementById("canvas"))); }
+		
 		prev = pts[i-1];
 		pt = pts[i];
 		
@@ -123,8 +125,24 @@
 			// console.log(gml);
 			var canvas = document.getElementById("canvas"); 
 			var sketch = document.getElementById("sketch").text; 
-			var p = Processing(canvas, sketch, gml); 
+			var p = Processing(canvas, sketch, gml);
 		};
+		
+		// image serialization/deserialization, for sending thumbnail to #000000book
+		// EXPERIMENTAL!
+		function serialize(canvas) {
+			return canvas.toDataURL();
+		}
+
+		function deserialize(data, canvas) {
+			var img = new Image();
+			img.onload = function() {
+				canvas.width = img.width;
+				canvas.height = img.height;
+				canvas.getContext("2d").drawImage(img, 0, 0);
+			};
+			img.src = data;
+		}
 
 	</script>
 	
