@@ -17,22 +17,51 @@
 	<style type="text/css" media="screen">
 		body { background: #fff; color: #222; font-family: sans-serif;margin: 0 auto; text-align: center; }
 		body, canvas { width: 800px; }
-		canvas { height: 600px; background-color: #000; border: 5px solid #222; }		
+		canvas { height: 580px; background-color: #000; border: 5px solid #222; }		
 		a, a:hover { color: #9f9f77; }
-		h1 { letter-spacing: -1px; color: #000; }
+		h1 { letter-spacing: -1px; color: #000; margin-left: 20px; }
 		h2 { font-family: "Arial", sans-serif; font-weight: normal; }
-		#loading { position: absolute; margin: -5px 0 0 -10px; }
+		#loading { position: absolute; margin: -5px 0 0 0px; }
+		#tag_id { color: #999; text-transform: uppercase; font-size: 9pt; margin-top: -8px; }
+		
+		/* new navigation sidebar */
+		#sidebar { position: absolute; margin-left: -170px; width: 150px; margin-top: 50px; overflow: hidden; font-size: 13pt; text-align: right; }
+		#sidebar ul { list-style: none; line-height: 1.4em; }
+		#sidebar hr { border: 0; border-bottom: 1px dotted #ccc; }
+		#sidebar a.selected { text-decoration: none; color: #000; }
+		#sidebar a.selected:after { content: "*"; color: #e33; font-weight: bold; }
 	</style>
 </head>
 <body>
-	<div id="loading"><img src="http://www.histats.com/images/loading1.gif" alt="" title="" /></div>		
+	
+	<div id="loading">
+		<img src="http://www.histats.com/images/loading1.gif" alt="" title="" id="loading_animation" />
+		<div id="tag_id">...</div>
+	</div>
+	
 	<h1>canvasplayer: GML Playback using Processing.js</h1>	
+	<div id="sidebar">
+		<h3>Load Tag:</h3>
+		<ul>
+			<li><a href="?latest" id="link-latest">Latest</a></li>	
+			<li><a href="?random" id="link-random">Random</a></li>
+			<li><hr />
+					<a href="?id=161" id="link-161">Katsu</a></li>
+			<li><a href="?id=158" id="link-158">Jesus Saves</a></li>
+			<li><a href="?id=1399" id="link-1399">Seen</a></li>
+			<li><a href="?id=818" id="link-818">Hell</a></li>
+			<li><a href="?id=148" id="link-148">hello world</a></li>
+			<li><a href="?id=148" id="link-842">404</a></li>
+			<li><hr />
+					<small>more on <a href="http://000000book.com">000000book.com</a></small></li>
+		</ul>
+	</div>
+	
   <canvas id="canvas"></canvas>
 	<p>
 		Code available at <a href="http://github.com/jamiew/canvasplayer">github.com/jamiew/canvasplayer</a>		
 		&mdash; tag by Katsu, <a href="http://000000book.com/data/161">download GML</a>
-    <p>
-    <strong>GML Webring:</strong> <a href="http://fffff.at/gml-week-graffiti-markup-language/">intro</a> / <a href="http://fffff.at/tag/gmlweek">recent projects</a> / <a href="http://fffff.at/gml">GML spec</a> / <a href="http://000000book.com">data (#000000book)</a>
+    <p><strong>GML Webring:</strong> <a href="http://fffff.at/gml-week-graffiti-markup-language/">intro</a> / <a href="http://fffff.at/tag/gmlweek">recent projects</a> / <a href="http://fffff.at/gml">GML spec</a> / <a href="http://000000book.com">data (#000000book)</a</p>
 	</p>
 
 	
@@ -45,7 +74,7 @@
 		console.log(gml);
 
 		// setup our canvas
-		size(800, 600);
+		size(800, 580);
 		frameRate(60);
 		background(0);
 		// smooth();
@@ -119,25 +148,43 @@
 		function load_gml(data){
 			gml = data.gml;
 			document.getElementById("loading").innerHTML = '';
+			
 			// console.log("load_gml()");
 			// console.log(gml);
 			var canvas = document.getElementById("canvas"); 
 			var sketch = document.getElementById("sketch").text; 
 			var p = Processing(canvas, sketch, gml); 
 		};
-
+		
 	</script>
 	
-	<script src="http://000000book.com/data/161.json?callback=load_gml" type="text/javascript" charset="utf-8"></script>	
-	<!-- 
-		Some cool tags:
-		* /data/latest.json
-		* /data/random.json
-		* /data/148 : hello world
-		* /data/161 : Katsu
-		* /data/158 : Jesus Saves	
-		* /data/818 : Hell
-	-->
+	<!-- load our GML data! using JSON+callback from 000000book.com, the GML database -->
+	
+	<!-- normal, simple tag loading from 000book -->
+	<!-- <script src="http://000000book.com/data/2365.json?callback=load_gml" type="text/javascript" charset="utf-8"></script>	 -->
+	
+	<!-- a more complex example to handle our new URL query variable -> tag loading navigation sidebar -->
+	<script type="text/javascript" charset="utf-8">
+		// ?id=154
+		// ?random
+		// ?latest
+		var tag_id = 161; // default to Katsu
+		var matches = document.location.href.match(/id=(\d+)/);
+		console.log(matches);		
+		if(matches && matches[1]){ tag_id = matches[1]; }
+		else if(/latest/.test(document.location.href)){ tag_id = 'latest'; }		
+		else if(/random/.test(document.location.href)){ tag_id = 'random'; }
+
+		// update our "UI"
+		document.getElementById("tag_id").innerHTML = tag_id;
+		if(document.getElementById("link-"+tag_id)){ document.getElementById("link-"+tag_id).className = 'selected'; }
+		
+		// append the appropriate <script> tag
+		var s=document.createElement('script');
+		s.setAttribute('src','http://000000book.com/data/'+tag_id+'.json?callback=load_gml');
+		document.getElementsByTagName('body')[0].appendChild(s);
+		
+	</script>
 	
 	
 </body>
