@@ -35,7 +35,7 @@
 <body>
 	
 	<div id="loading">
-		<img src="http://www.histats.com/images/loading1.gif" alt="" title="" id="loading_animation" />
+		<img src="loading1.gif" alt="" title="" id="loading_animation" />
 		<div id="tag_id">...</div>
 	</div>
 	
@@ -68,28 +68,16 @@
   <script id="sketch" type="text/javascript">
 
 	// big TODO: use the time data instead of just doing continuous time playback
-	void setup() {
-		console.log("setup()");
-		console.log(gml);
-
+	void setup(){
 		// setup our canvas
 		size(800, 580);
-		frameRate(60);
+    fps = 90; // TODO should adjust accdg to GML fidelity
+		frameRate(fps);
 		background(0);
-		// smooth();
-
-		// read data from the GML (GSON), loaded via #000000book JSONp callback
-		// the <script> tag is finicky if not at the bottom of the page, after the Processing.js sketch
-		pts = []
-		strokes = (gml.tag.drawing.stroke instanceof Array ? gml.tag.drawing.stroke : [gml.tag.drawing.stroke]);
-		for(i in strokes){ 
-			// console.log("reading stroke "+i);
-			pts = pts.concat(strokes[i].pt);
-			pts.push(undefined); //blank obj to indicate new stroke
-		}
+		// smooth();		
 		
 		// read orientation/scaling headers from the GML
-		// FIXME - DustTag GML not specifying a orientation/scaling, so we're explicitly fixing known iPhone apps
+		// DustTag's GML does not specify orientation/scaling, so we're explicitly fixing known iPhone apps
 		var app_name = gml.tag.header && gml.tag.header.client && gml.tag.header.client.name;
 		if(app_name == 'Graffiti Analysis 2.0: DustTag' || app_name == 'DustTag: Graffiti Analysis 2.0' || app_name == 'Fat Tag - Katsu Edition'){
 			rotation = 80;
@@ -98,19 +86,51 @@
 		} else {
 			rotation = 0;
 			translation = [0, 0];
-			console.log("Unknown appplication source: "+app_name);		
+			// console.log("Unknown appplication source: "+app_name);		
 			// console.log(gml.tag.header);
 		}
 		console.log("rotation="+rotation+" translation="+translation);
+
+		// read data from the GML (GSON), loaded via #000000book JSONp callback
+		// the <script> tag is finicky if not at the bottom of the page, after the Processing.js sketch
+		pts = []; // raw point data
+		strokes = (gml.tag.drawing.stroke instanceof Array ? gml.tag.drawing.stroke : [gml.tag.drawing.stroke]);
+		for(i in strokes){ 
+			console.log("reading stroke #"+i+" ...");
+			pts = pts.concat(strokes[i].pt);
+			pts.push(undefined); //blank obj to indicate new stroke
+		}
+		end_time = pts[pts.length-2].time*1000; // -1 is our end-of-stroke undefined
+
+    // Set initial drawing vector...      
+    pt = pts[0];
+    nxt = pts[1];
+		prev = undefined;
+		queued_at = pt.time*1000;
+		console.log(pt);
+		console.log(nxt);
+		drawnPoints = 0;		
 	}
 
-	void draw() {
-		i = frameCount % pts.length;
-		prev = pts[i-1];
-		pt = pts[i];
+	void draw(){
+		//i = frameCount % pts.length;
+    i = frameCount % end_time;
+		// hook for when are at a datapoint
+		if(queued_at < millis()){ 
+			prev = pts[drawnPoints-1];
+			pt = pts[drawnPoints];
+			drawnPoints += 1;
+			nxt = pts[drawnPoints];
+			queued_at = nxt.time*1000/2;
+			console.log("millis="+millis()+" drawnPoints="+drawnPoints+" pt.time="+pt.time*1000+" queued_at="+queued_at);
+		}
+		else {
+
+    //console.log("millis="+millis()+" frames="+frameCount+" pt="+pt+" prev="+prev);
 		
 		// drawing rules
-		if(i == 0){ background(0); } // clear on restart (first frame)
+    if(frameCount > end_time){ console.log("drawing complete"); exit(); }
+		//if(i == 0){ background(0); } // clear on restart (first frame)
 		if(pt == undefined || pt == []){ return; } // if missing current pt, we are skipping		
 		if(prev == undefined || prev == []){ prev = pt; } // if missing the prev, we're at the beginning of a new stroke
 		
@@ -128,6 +148,9 @@
 		strokeWeight(hyp * 200);
 		stroke(255);		
 		line(prev.x*width, prev.y*height, pt.x*width, pt.y*height);
+
+			// interpolate that bitch using vector pt->nxt
+		}
 
 	}
   </script>
@@ -187,7 +210,7 @@
 	
 
 <!-- stats tracking -->
-<script type="text/javascript">
+<!--<script type="text/javascript">
   var _gaq = _gaq || [];
   _gaq.push(['_setAccount', 'UA-96220-1']);
   _gaq.push(['_trackPageview']);
@@ -196,7 +219,8 @@
     ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
     (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(ga);
   })();
-</script>
+</script>-->
+
 	
 </body>
 </html>
