@@ -101,57 +101,51 @@
 			pts.push(undefined); //blank obj to indicate new stroke
 		}
 		end_time = pts[pts.length-2].time*1000; // -1 is our end-of-stroke undefined
-
+		console.log(pts.length+" points");
+		console.log("time="+end_time+"ms");
     // Set initial drawing vector...      
     pt = pts[0];
     nxt = pts[1];
 		prev = undefined;
 		queued_at = pt.time*1000;
-		console.log(pt);
-		console.log(nxt);
 		drawnPoints = 0;		
 	}
 
 	void draw(){
-		//i = frameCount % pts.length;
-    i = frameCount % end_time;
-		// hook for when are at a datapoint
 		if(queued_at < millis()){ 
 			prev = pts[drawnPoints-1];
 			pt = pts[drawnPoints];
 			drawnPoints += 1;
-			nxt = pts[drawnPoints];
-			queued_at = nxt.time*1000/2;
-			console.log("millis="+millis()+" drawnPoints="+drawnPoints+" pt.time="+pt.time*1000+" queued_at="+queued_at);
+			if(pts[drawnPoints]){
+				nxt = pts[drawnPoints];
+				queued_at = nxt.time*1000;
+			}
+			else{ 
+				// no point, skip
+				return;
+			}
+			// console.log("millis="+millis()+" drawnPoints="+drawnPoints+" pt.time="+pt.time*1000+" queued_at="+queued_at);			
 		}
-		else {
-
-    //console.log("millis="+millis()+" frames="+frameCount+" pt="+pt+" prev="+prev);
 		
 		// drawing rules
-    if(frameCount > end_time){ console.log("drawing complete"); exit(); }
+    if(frameCount > end_time || nxt == undefined){ console.log("drawing complete"); exit(); }
 		//if(i == 0){ background(0); } // clear on restart (first frame)
 		if(pt == undefined || pt == []){ return; } // if missing current pt, we are skipping		
 		if(prev == undefined || prev == []){ prev = pt; } // if missing the prev, we're at the beginning of a new stroke
-		
-		// calculations
+
+		// calculations...
 		dimx = (prev.x -pt.x)*width;
 		dimy = (prev.y -pt.y)*height;
 		hyp = 1/(sqrt(pow(dimx,2),pow(dimy,2)) + 25);
-		// console.log('stroke prev.x='+prev.x+' prev.y='+prev.y+' pt.x='+pt.x+' pt.y='+pt.y+' |  dimx='+dimx+' dimy='+dimy+' hyp='+hyp);
 
 		// transform display space if specified
 		translate(translation[0], translation[1]);
 		rotate(rotation);
 
-		// finally... draw!
-		strokeWeight(hyp * 200);
+		// finally draw
+		strokeWeight(hyp * 300); // acceleration adjusts stroke width
 		stroke(255);		
 		line(prev.x*width, prev.y*height, pt.x*width, pt.y*height);
-
-			// interpolate that bitch using vector pt->nxt
-		}
-
 	}
   </script>
   <script src="processing.min.js" type="text/javascript" charset="utf-8"></script>			
