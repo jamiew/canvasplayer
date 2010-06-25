@@ -74,7 +74,7 @@
   void setup(){
     // setup our canvas
     size(800, 580);
-    fps = 60; // TODO should adjust according to GML fidelity
+    fps = 60;
     frameRate(fps);
     background(0);
     smooth();
@@ -104,14 +104,17 @@
       pts.push(undefined); //blank obj to indicate new stroke
     }
     end_time = pts[pts.length-2].time*1000; // -1 is our end-of-stroke undefined
-    console.log(pts.length+" points");
-    console.log("time="+end_time+"ms");
     // Set initial drawing vector...
     pt = pts[0];
     nxt = pts[1];
     prev = undefined;
-    queued_at = pt.time*1000;
+    multiplier = 2500/pts.length; // dampener for dense GML point data that we can't play back
+    queued_at = pt.time*1000*multiplier;
     drawnPoints = 0;
+
+    console.log(pts.length+" points");
+    console.log("time="+end_time+"ms");
+    console.log("multiplier="+multiplier);
   }
 
   void draw(){
@@ -121,13 +124,14 @@
       drawnPoints += 1;
       if(pts[drawnPoints]){
         nxt = pts[drawnPoints];
-        queued_at = nxt.time*1000;
+        queued_at = nxt.time*1000*multiplier;
       }
       else{
         // no point, skip
         return;
       }
-      // console.log("millis="+millis()+" drawnPoints="+drawnPoints+" pt.time="+pt.time*1000+" queued_at="+queued_at);
+      diff = millis()-queued_at;
+      console.log("millis="+millis()+" drawnPoints="+drawnPoints+" pt.time="+pt.time*1000+" queued_at="+queued_at+" diff="+diff);
     }
 
     // drawing rules
