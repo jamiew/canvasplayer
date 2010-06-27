@@ -11,7 +11,7 @@ end
 
 desc 'Build and deploy'
 task :deploy => :build do
-  sh 'rsync -rtzh --progress --delete . jamiew@txd:~/web/public/canvasplayer2'
+  sh 'rsync -rtzh --progress --delete . jamiew@jamiedubs.com:~/web/public/canvasplayer2'
 end
 
 desc "Run tests"
