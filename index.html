@@ -44,6 +44,7 @@
 
   <h1>canvasplayer: GML Playback using Processing.js</h1>
   <div id="sidebar">
+    <div id="meta"></div>
     <h3>Load Tag:</h3>
     <ul>
       <li><a href="?latest" id="link-latest">Latest</a></li>
@@ -85,7 +86,7 @@
     if(app_name == 'Graffiti Analysis 2.0: DustTag' || app_name == 'DustTag: Graffiti Analysis 2.0' || app_name == 'Fat Tag - Katsu Edition'){
       rotation = 80;
       translation = [0, 800]; // still gets cropped; should scale down all values
-      console.log('GML is known iPhone app, scaling...');
+      console.log('iPhone app detected, rotating ...');
     } else {
       rotation = 0;
       translation = [0, 0];
@@ -96,29 +97,73 @@
 
     // read data from the GML (GSON), loaded via #000000book JSONp callback
     // the <script> tag is finicky if not at the bottom of the page, after the Processing.js sketch
-    pts = []; // raw point data
+    pts = [];
     strokes = (gml.tag.drawing.stroke instanceof Array ? gml.tag.drawing.stroke : [gml.tag.drawing.stroke]);
     for(i in strokes){
-      console.log("reading stroke #"+i+" ...");
+      console.log("Reading stroke #"+i+" ...");
       pts = pts.concat(strokes[i].pt);
       pts.push(undefined); //blank obj to indicate new stroke
     }
     end_time = pts[pts.length-2].time*1000; // -1 is our end-of-stroke undefined
+
     // Set initial drawing vector...
     pt = pts[0];
     nxt = pts[1];
     prev = undefined;
-    multiplier = 2500/pts.length; // dampener for dense GML point data that we can't play back
+    multiplier = 1; // don't use
     queued_at = pt.time*1000*multiplier;
     drawnPoints = 0;
 
     console.log(pts.length+" points");
     console.log("time="+end_time+"ms");
-    console.log("multiplier="+multiplier);
+
+    // ghetto: downsample GML that is too complex to draw in realtime
+    // I think we should be pre-computing all of our drawable frames
+    // (or at least paths) which would avoid this entirely...
+    threshold = 5;
+    density = 100/(end_time/pts.length);
+    console.log("point density = "+density);
+    if(density > threshold){
+      // totally arbitrary based on debugging some drawings
+      if(density > threshold + 4){
+        amount = 4;
+      } else if(density > threshold + 2){
+        amount = 3;
+      } else {
+        amount = 2;
+      }
+      console.log("downsampling GML, amount="+amount);
+
+      newpts = [];
+      for(int i = 0; i < pts.length; i++){
+        // skip a great deal of points, but
+        // always include undefined (stroke separators)
+        if(i % amount == 0 || pts[i] == undefined){
+          newpts.push(pts[i]);
+        }
+      }
+      oldpts = pts;
+      pts = newpts;
+    }
+
   }
 
   void draw(){
-    if(queued_at < millis()){
+
+    diff = millis()-queued_at;
+    if(frameCount % 50 == 0){
+      if(pt){
+        console.log("frameCount="+frameCount+" x="+pt.x+" y="+pt.y+" drawnPoints="+drawnPoints+" diff="+diff);
+      }
+      else{
+        console.log("frameCount="+frameCount+"... no point?!?");
+      }
+    }
+
+
+
+    // update point if we've reached next one...
+    if(millis() > queued_at){
       prev = pts[drawnPoints-1];
       pt = pts[drawnPoints];
       drawnPoints += 1;
@@ -126,33 +171,37 @@
         nxt = pts[drawnPoints];
         queued_at = nxt.time*1000*multiplier;
       }
-      else{
-        // no point, skip
-        return;
-      }
-      diff = millis()-queued_at;
-      console.log("millis="+millis()+" drawnPoints="+drawnPoints+" pt.time="+pt.time*1000+" queued_at="+queued_at+" diff="+diff);
+      // console.log("millis="+millis()+" drawnPoints="+drawnPoints+" pt.time="+pt.time*1000+" queued_at="+queued_at+" diff="+diff);
     }
 
     // drawing rules
-    if(frameCount > end_time || nxt == undefined){ console.log("drawing complete"); exit(); }
-    //if(i == 0){ background(0); } // clear on restart (first frame)
+    if(millis() > end_time){ console.log("time expired, "+drawnPoints+" points drawn of "+pts.length+ "... "+Math.round(drawnPoints/pts.length*100)+"%"); exit(); }
+    if(nxt == undefined){ console.log("no next point, drawing complete."); exit(); }
+    //if(frameCount % pts.length == 0){ background(0); } // clear on restart (first frame)
     if(pt == undefined || pt == []){ return; } // if missing current pt, we are skipping
     if(prev == undefined || prev == []){ prev = pt; } // if missing the prev, we're at the beginning of a new stroke
 
     // calculations...
     dimx = (prev.x -pt.x)*width;
     dimy = (prev.y -pt.y)*height;
-    hyp = 1/(sqrt(pow(dimx,2),pow(dimy,2)) + 25);
-
+    hyp_boost = 25; // this + stroke_multiplier doing ghetto width dependent on acceleration
+    hyp = 1/(sqrt(pow(dimx,2),pow(dimy,2)) + hyp_boost);
     // transform display space if specified
     translate(translation[0], translation[1]);
     rotate(rotation);
 
     // finally draw
-    strokeWeight(hyp * 300); // acceleration adjusts stroke width
+    strokeMultiplier = 250;
+    strokeWeight(hyp * strokeMultiplier); // acceleration adjusts stroke width
     stroke(255);
-    line(prev.x*width, prev.y*height, pt.x*width, pt.y*height);
+    bonus = 80; // FIXME, not scaling to canvas size correctly
+    x1 = parseInt(prev.x*width) + bonus;
+    y1 = parseInt(prev.y*height) + bonus;
+    x2 = parseInt(pt.x*width) + bonus;
+    y2 = parseInt(pt.y*height) + bonus;
+
+    // console.log("1=("+x1+","+y1+") 2=("+x2+","+y2+")");
+    line(x1, y1, x2, y2);
   }
   </script>
   <script src="processing.min.js" type="text/javascript" charset="utf-8"></script>
