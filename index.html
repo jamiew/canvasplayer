@@ -78,7 +78,10 @@
     fps = 60;
     frameRate(fps);
     background(0);
-    smooth();
+    // smooth();
+
+    downsampling_enabled = false;
+    interpolate_points = false;
 
     // read orientation/scaling headers from the GML
     // DustTag's GML does not specify orientation/scaling, so we're explicitly fixing known iPhone apps
@@ -98,6 +101,12 @@
     // read data from the GML (GSON), loaded via #000000book JSONp callback
     // the <script> tag is finicky if not at the bottom of the page, after the Processing.js sketch
     pts = [];
+    // edges = {'top':0, 'right':0, 'bottom':0, 'left':0};
+    edges = []
+    edges['top'] = 0;
+    edges['right'] = 0;
+    edges['bottom'] = 0;
+    edges['left'] = 0;
     strokes = (gml.tag.drawing.stroke instanceof Array ? gml.tag.drawing.stroke : [gml.tag.drawing.stroke]);
     for(i in strokes){
       console.log("Reading stroke #"+i+" ...");
@@ -105,6 +114,7 @@
       pts.push(undefined); //blank obj to indicate new stroke
     }
     end_time = pts[pts.length-2].time*1000; // -1 is our end-of-stroke undefined
+    console.log(edges);
 
     // Set initial drawing vector...
     pt = pts[0];
@@ -112,7 +122,9 @@
     prev = undefined;
     multiplier = 1; // don't use
     queued_at = pt.time*1000*multiplier;
+
     drawnPoints = 0;
+    interpolatedPoints = 0;
 
     console.log(pts.length+" points");
     console.log("time="+end_time+"ms");
@@ -123,7 +135,7 @@
     threshold = 5;
     density = 100/(end_time/pts.length);
     console.log("point density = "+density);
-    if(density > threshold){
+    if(density > threshold && downsampling_enabled){
       // totally arbitrary based on debugging some drawings
       if(density > threshold + 4){
         amount = 4;
@@ -146,71 +158,126 @@
       pts = newpts;
     }
 
+    cursor_x = 0;
+    cursor_y = 0;
+    cursor_time = 0;
+
+  }
+
+  void setPoints(){
+    prev = pts[drawnPoints-1];
+    pt = pts[drawnPoints];
+    drawnPoints++;
+    if(pts[drawnPoints]){
+      nxt = pts[drawnPoints];
+      queued_at = nxt.time*1000*multiplier;
+    }
+  }
+
+  void debugFrame(){
+    if(pt){
+      console.log("frameCount="+frameCount+" x="+cursor_x+" y="+cursor_y+" drawnPoints="+drawnPoints+" diff="+diff);
+    }
+    else{
+      console.log("frameCount="+frameCount+"... no point?!?");
+    }
   }
 
   void draw(){
 
+    // debug our frame
     diff = millis()-queued_at;
     if(frameCount % 50 == 0){
-      if(pt){
-        console.log("frameCount="+frameCount+" x="+pt.x+" y="+pt.y+" drawnPoints="+drawnPoints+" diff="+diff);
-      }
-      else{
-        console.log("frameCount="+frameCount+"... no point?!?");
-      }
+      debugFrame();
     }
 
+    // skip ahead if we're laaaaaaggging
+    if(diff > 50 && downsampling_enabled == false){
+      setPoints();
+    }
 
+    // debug abort
+    // if(millis() > 1000){ exit(); }
 
-    // update point if we've reached next one...
+    // update point if we've reached the next one
     if(millis() > queued_at){
-      prev = pts[drawnPoints-1];
-      pt = pts[drawnPoints];
-      drawnPoints += 1;
-      if(pts[drawnPoints]){
-        nxt = pts[drawnPoints];
-        queued_at = nxt.time*1000*multiplier;
-      }
+      setPoints();
       // console.log("millis="+millis()+" drawnPoints="+drawnPoints+" pt.time="+pt.time*1000+" queued_at="+queued_at+" diff="+diff);
+      cursor_x = parseFloat(pt.x);
+      cursor_y = parseFloat(pt.y);
+
+      strokeWeight(8);
+      stroke(255);
+    }
+    else if(interpolate_points){
+      // otherwise move the point along the specified amount...
+      // interpolate the rest of the drawing points...
+      // distance = nxt - pt
+      // ms = nxt.time - pt.time
+      hmm = (nxt.time*1000) - (pt.time*1000);
+      ms = nxt.time*1000 - millis();
+      if(nxt == undefined){ return; }
+      dimx = (cursor_x - nxt.x);
+      dimy = (cursor_y - nxt.y);
+      // hyp = sqrt(pow(dimx,2),pow(dimy,2));
+
+      if(ms != 0){
+        cursor_x += parseFloat(dimx/ms*2);
+        cursor_y += parseFloat(dimy/ms*2);
+        cursor_time += ms;
+        // console.log("interpolating... millis="+millis()+" ms="+ms+" cursor=("+cursor_x+","+cursor_y+") SHIFT=("+dimx+","+dimy+")");
+        interpolatedPoints++;
+      }
+      strokeWeight(8);
+      stroke(210);
+    }
+    else {
+      // non-draws...?
     }
 
     // drawing rules
-    if(millis() > end_time){ console.log("time expired, "+drawnPoints+" points drawn of "+pts.length+ "... "+Math.round(drawnPoints/pts.length*100)+"%"); exit(); }
+    if(millis() > end_time){
+      console.log("draw time expired, "+drawnPoints+" points drawn of "+pts.length+ "... "+Math.round(drawnPoints/pts.length*100)+"%");
+      console.log(interpolatedPoints+" interpolated points");
+      exit();
+    }
     if(nxt == undefined){ console.log("no next point, drawing complete."); exit(); }
     //if(frameCount % pts.length == 0){ background(0); } // clear on restart (first frame)
     if(pt == undefined || pt == []){ return; } // if missing current pt, we are skipping
     if(prev == undefined || prev == []){ prev = pt; } // if missing the prev, we're at the beginning of a new stroke
 
-    // calculations...
-    dimx = (prev.x -pt.x)*width;
-    dimy = (prev.y -pt.y)*height;
-    hyp_boost = 25; // this + stroke_multiplier doing ghetto width dependent on acceleration
-    hyp = 1/(sqrt(pow(dimx,2),pow(dimy,2)) + hyp_boost);
-    // transform display space if specified
-    translate(translation[0], translation[1]);
-    rotate(rotation);
+    // draw
+    dimx = (prev.x - cursor_x)*width;
+    dimy = (prev.y - cursor_y)*height;
+    hyp = 1/(sqrt(pow(dimx,2),pow(dimy,2)) + 1);
 
-    // finally draw
-    strokeMultiplier = 250;
-    strokeWeight(hyp * strokeMultiplier); // acceleration adjusts stroke width
-    stroke(255);
-    bonus = 80; // FIXME, not scaling to canvas size correctly
-    x1 = parseInt(prev.x*width) + bonus;
-    y1 = parseInt(prev.y*height) + bonus;
-    x2 = parseInt(pt.x*width) + bonus;
-    y2 = parseInt(pt.y*height) + bonus;
+    // acceleration adjusts stroke width
+    //strokeMultiplier = 250;
+    //strokeWeight(hyp * strokeMultiplier);
+
+    // set stage
+    offset = 0; // TODO scaling to canvas size correctly
+    x1 = parseFloat(prev.x*width) + offset;
+    y1 = parseFloat(prev.y*height) + offset;
+    x2 = parseFloat(cursor_x*width) + offset;
+    y2 = parseFloat(cursor_y*height) + offset;
 
     // console.log("1=("+x1+","+y1+") 2=("+x2+","+y2+")");
     line(x1, y1, x2, y2);
+    // bezier(x1,y1, x1+dimx,y1+dimy, x2+dimx,y2+dimy, x2,y2);
+    
+    // transform display space if specified
+    // FIXME exactly what order should we be doing this?
+    translate(translation[0], translation[1]);
+    rotate(rotation);    
   }
   </script>
   <script src="processing.min.js" type="text/javascript" charset="utf-8"></script>
 
-
   <!-- the GML data, served from #000000book and initialized in a callback -->
-  <script type="text/javascript" charset="utf-8">
 
-    // mock console.log() if no Firebug etc.
+  <script type="text/javascript" charset="utf-8">
+    // mock console.log() if no Firebug
     if(!console || !console.log) {
       var console = new Array();
       console.log = function () {}
@@ -220,19 +287,13 @@
     function load_gml(data){
       gml = data.gml;
       document.getElementById("loading").innerHTML = '';
-
-      // console.log("load_gml()");
-      // console.log(gml);
       var canvas = document.getElementById("canvas");
       var sketch = document.getElementById("sketch").text;
       var p = Processing(canvas, sketch, gml);
     };
-
   </script>
 
   <!-- load our GML data! using JSON+callback from 000000book.com, the GML database -->
-
-  <!-- normal, simple tag loading from 000book -->
   <!-- <script src="http://000000book.com/data/2365.json?callback=load_gml" type="text/javascript" charset="utf-8"></script>   -->
 
   <!-- a more complex example to handle our new URL query variable -> tag loading navigation sidebar -->
@@ -255,9 +316,7 @@
     var s=document.createElement('script');
     s.setAttribute('src','http://000000book.com/data/'+tag_id+'.json?callback=load_gml');
     document.getElementsByTagName('body')[0].appendChild(s);
-
   </script>
-
 
 <!-- stats tracking -->
 <!--<script type="text/javascript">
@@ -270,7 +329,6 @@
     (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(ga);
   })();
 </script>-->
-
 
 </body>
 </html>
