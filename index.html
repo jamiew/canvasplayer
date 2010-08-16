@@ -2,17 +2,20 @@
   "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <!--
   canvasplayer, 000000book edition
-  Graffiti Markup Language (GML) playback using HTML5 canvas and Processing.js
+  Graffiti Markup Language (GML) playback using HTML5 <canvas> and Processing.js
 
   by Jamie Wilkinson... <http://jamiedubs.com> <http://github.com/jamiew>
 
 	v1: initial implementation
   v2: multiple strokes, looping, iPhone translation, better stage positioning
-	v3: time-driven playback, not just continuous
+	v3: time-accurate playback
 
   TODO:
+  * drips!!
   * draw curves instead of simple lines
   * scale & center the drawing on the stage
+  * customizable line width, speed sensitivity, etc.
+
 -->
 <html>
 <head>
@@ -106,14 +109,10 @@
     }
     end_time = pts[pts.length-2].time*1000; // -1 is our end-of-stroke undefined
 
-    // Set initial drawing vector...
-    pt = pts[0];
-    nxt = pts[1];
-    prev = undefined;
-    multiplier = 1; // don't use
-    queued_at = pt.time*1000*multiplier;
-    drawnPoints = 0;
-
+    // Set initial path vector & draw settings
+    loopCount = 0;
+    restart();
+    strokeWeight(12); // "base width"
     console.log(pts.length+" points");
     console.log("time="+end_time+"ms");
 
@@ -145,15 +144,28 @@
       oldpts = pts;
       pts = newpts;
     }
+  }
 
+  void restart(){
+    console.log("restarting!.....");
+    loopCount += 1;
+    frameCount = 0;
+    pt = pts[0];
+    nxt = pts[1];
+    prev = undefined;
+    queued_at = pt.time*1000;
+    drawnPoints = 0;
+
+    background(0);
   }
 
   void draw(){
 
-    diff = millis()-queued_at;
+    // Dump debugging every once in a while
+    diff = (millis()%end_time)-queued_at;
     if(frameCount % 50 == 0){
       if(pt){
-        console.log("frameCount="+frameCount+" x="+pt.x+" y="+pt.y+" drawnPoints="+drawnPoints+" diff="+diff);
+        console.log("loop="+loopCount+" millis="+millis()+" frameCount="+frameCount+" x="+pt.x+" y="+pt.y+" drawnPoints="+drawnPoints+" diff="+diff);
       }
       else{
         console.log("frameCount="+frameCount+"... no point?!?");
@@ -161,42 +173,47 @@
     }
 
     // update point if we've reached next one...
-    if(millis() > queued_at){
+    if( (millis()%end_time) > queued_at){
       prev = pts[drawnPoints-1];
       pt = pts[drawnPoints];
       drawnPoints += 1;
       if(pts[drawnPoints]){
         nxt = pts[drawnPoints];
-        queued_at = nxt.time*1000*multiplier;
+        queued_at = nxt.time*1000;
       }
       // console.log("millis="+millis()+" drawnPoints="+drawnPoints+" pt.time="+pt.time*1000+" queued_at="+queued_at+" diff="+diff);
     }
 
-    // drawing rules
-    if(millis() > end_time){ console.log("time expired, "+drawnPoints+" points drawn of "+pts.length+ "... "+Math.round(drawnPoints/pts.length*100)+"%"); exit(); }
-    if(nxt == undefined){ console.log("no next point, drawing complete."); exit(); }
-    if(frameCount % pts.length == 0){ background(0); } // clear on restart (first frame)
+    // drawing rules -- e.g. see if we're done or need to skip or point
+    if( (millis()/loopCount) >= end_time ){
+      console.log("millis>end_time, "+drawnPoints+" points drawn of "+pts.length+ "... "+Math.round(drawnPoints/pts.length*100)+"%");
+      // exit();
+      restart();
+    }
+    // if(nxt == undefined){ console.log("no next point, drawing complete."); exit(); }
     if(pt == undefined || pt == []){ return; } // if missing current pt, we are skipping
     if(prev == undefined || prev == []){ prev = pt; } // if missing the prev, we're at the beginning of a new stroke
 
-    // calculations...
+    // geometry 101
     dimx = (prev.x -pt.x)*width;
     dimy = (prev.y -pt.y)*height;
-    hyp_boost = 25; // this + stroke_multiplier doing ghetto width dependent on acceleration
-    hyp = 1/(sqrt(pow(dimx,2),pow(dimy,2)) + hyp_boost);
+    hyp = sqrt(pow(dimx,2),pow(dimy,2));
+    // TODO angle of inflection
+
     // transform display space if specified
     translate(translation[0], translation[1]);
     rotate(rotation);
 
-    // finally draw
-    strokeMultiplier = 250;
-    strokeWeight(hyp * strokeMultiplier); // acceleration adjusts stroke width
+    // finally, draw
+    // use speed-sensitive stroke widths
+    strokeWidth = (1 / (sqrt(pow(dimx,2),pow(dimy,2)) + 50))*1000;
+    strokeWeight(strokeWidth);
     stroke(255);
-    bonus = 0; // FIXME, not scaling to canvas size correctly
-    x1 = parseInt(prev.x*width) + bonus;
-    y1 = parseInt(prev.y*height) + bonus;
-    x2 = parseInt(pt.x*width) + bonus;
-    y2 = parseInt(pt.y*height) + bonus;
+    
+    x1 = parseInt(prev.x*width);
+    y1 = parseInt(prev.y*height);
+    x2 = parseInt(pt.x*width);
+    y2 = parseInt(pt.y*height);
 
     // console.log("1=("+x1+","+y1+") 2=("+x2+","+y2+")");
     line(x1, y1, x2, y2);
@@ -205,21 +222,19 @@
   <script src="processing.min.js" type="text/javascript" charset="utf-8"></script>
 
 
-  <!-- the GML data, served from #000000book and initialized in a callback -->
+  <!-- our GML data loading callback -->
   <script type="text/javascript" charset="utf-8">
-
-    // mock console.log() if no Firebug etc.
+    // stub out console.log() in case there's no Firebug for debugging
     if(!console || !console.log) {
       var console = new Array();
       console.log = function () {}
     }
 
-    // callback method
+    // our JSONp callback method
     function load_gml(data){
       gml = data.gml;
       document.getElementById("loading").innerHTML = '';
-
-      // console.log("load_gml()");
+      // console.log("load_gml() called");
       // console.log(gml);
       var canvas = document.getElementById("canvas");
       var sketch = document.getElementById("sketch").text;
@@ -228,37 +243,38 @@
 
   </script>
 
-  <!-- load our GML data! using JSON+callback from 000000book.com, the GML database -->
+  <!-- load our GML data via JSONp from 000000book.com, the GML database -->
+  <!-- we have two differnet techniques for this... -->
 
-  <!-- normal, simple tag loading from 000book -->
+  <!-- #1: normal, basic JSONp -->
   <!-- <script src="http://000000book.com/data/2365.json?callback=load_gml" type="text/javascript" charset="utf-8"></script>   -->
 
-  <!-- a more complex example to handle our new URL query variable -> tag loading navigation sidebar -->
+  <!-- #2: a more complex example which can handle our fancy user interface :) -->
   <script type="text/javascript" charset="utf-8">
-    // ?id=154
-    // ?random
-    // ?latest
-    var tag_id = 161; // default to Katsu
+    // parse query variables from the URL to decide which tag to load
+    // - ?id=154
+    // - ?latest
+    // - ?random
+    var tag_id = 161; // default = KATSU
     var matches = document.location.href.match(/id=(\d+)/);
     console.log(matches);
     if(matches && matches[1]){ tag_id = matches[1]; }
     else if(/latest/.test(document.location.href)){ tag_id = 'latest'; }
     else if(/random/.test(document.location.href)){ tag_id = 'random'; }
 
-    // update our "UI"
+    // update our navigation controls
     document.getElementById("tag_id").innerHTML = tag_id;
     if(document.getElementById("link-"+tag_id)){ document.getElementById("link-"+tag_id).className = 'selected'; }
 
-    // append the appropriate <script> tag
+    // append the cust <script> tag
     var s=document.createElement('script');
     s.setAttribute('src','http://000000book.com/data/'+tag_id+'.json?callback=load_gml');
     document.getElementsByTagName('body')[0].appendChild(s);
-
   </script>
 
 
-<!-- stats tracking -->
-<!--<script type="text/javascript">
+<!-- stats tracking - TODO only do this for jamiedubs.com! -->
+<script type="text/javascript">
   var _gaq = _gaq || [];
   _gaq.push(['_setAccount', 'UA-96220-1']);
   _gaq.push(['_trackPageview']);
@@ -267,7 +283,7 @@
     ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
     (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(ga);
   })();
-</script>-->
+</script>
 
 
 </body>
