@@ -126,11 +126,11 @@
     if(density > threshold){
       // totally arbitrary based on debugging some drawings
       if(density > threshold + 4){
-        amount = 4;
-      } else if(density > threshold + 2){
         amount = 3;
-      } else {
+      } else if(density > threshold + 2){
         amount = 2;
+      } else {
+        amount = 1.5;
       }
       console.log("downsampling GML, amount="+amount);
 
@@ -160,8 +160,6 @@
       }
     }
 
-
-
     // update point if we've reached next one...
     if(millis() > queued_at){
       prev = pts[drawnPoints-1];
@@ -177,7 +175,7 @@
     // drawing rules
     if(millis() > end_time){ console.log("time expired, "+drawnPoints+" points drawn of "+pts.length+ "... "+Math.round(drawnPoints/pts.length*100)+"%"); exit(); }
     if(nxt == undefined){ console.log("no next point, drawing complete."); exit(); }
-    //if(frameCount % pts.length == 0){ background(0); } // clear on restart (first frame)
+    if(frameCount % pts.length == 0){ background(0); } // clear on restart (first frame)
     if(pt == undefined || pt == []){ return; } // if missing current pt, we are skipping
     if(prev == undefined || prev == []){ prev = pt; } // if missing the prev, we're at the beginning of a new stroke
 
