@@ -83,6 +83,10 @@
     background(0);
     smooth();
 
+
+    // options
+    downsampling = false;
+
     // read orientation/scaling headers from the GML
     // DustTag's GML does not specify orientation/scaling, so we're explicitly fixing known iPhone apps
     var app_name = gml.tag.header && gml.tag.header.client && gml.tag.header.client.name;
@@ -122,7 +126,7 @@
     threshold = 5;
     density = 100/(end_time/pts.length);
     console.log("point density = "+density);
-    if(density > threshold){
+    if(downsampling == true && density > threshold){
       // totally arbitrary based on debugging some drawings
       if(density > threshold + 4){
         amount = 3;
