@@ -23,7 +23,7 @@
   <style type="text/css" media="screen">
     body { background: #fff; color: #222; font-family: sans-serif;margin: 0 auto; text-align: center; }
     body, canvas { width: 800px; }
-    canvas { height: 580px; background-color: #000; border: 5px solid #222; }
+    canvas { height: 580px; background-color: #000; }
     a, a:hover { color: #9f9f77; }
     h1 { letter-spacing: -1px; color: #000; margin-left: 20px; }
     h2 { font-family: "Arial", sans-serif; font-weight: normal; }
@@ -76,16 +76,20 @@
 
   // big TODO: use the time data instead of just doing continuous time playback
   void setup(){
+
+    // global drawing options
+    default_stroke_width = 12;
+    speed_sensitive_strokes = false; // fairly ghetto
+    downsampling_enabled = true; // SUPER GHETTO -- DO NOT USE
+    density_threshold = 5; // point density necessary before downsampling -- othewise not sampled
+    hyp_threshold = 0.0005; // minimum drawable length b/w points -- smaller is dropped
+    framelag_threshold = 50; // ms behind reference time to start dropping frames (dynamic)
+
     // setup our canvas
     size(800, 580);
     fps = 60;
     frameRate(fps);
-    background(0);
     smooth();
-
-
-    // options
-    downsampling = false;
 
     // read orientation/scaling headers from the GML
     // DustTag's GML does not specify orientation/scaling, so we're explicitly fixing known iPhone apps
@@ -116,42 +120,35 @@
     // Set initial path vector & draw settings
     loopCount = 0;
     restart();
-    strokeWeight(12); // "base width"
+    strokeWeight(default_stroke_width);
     console.log(pts.length+" points");
     console.log("time="+end_time+"ms");
 
     // ghetto: downsample GML that is too complex to draw in realtime
-    // I think we should be pre-computing all of our drawable frames
-    // (or at least paths) which would avoid this entirely...
-    threshold = 5;
+    // thresholds are totally arbitrary, based on debugging some drawings
     density = 100/(end_time/pts.length);
-    console.log("point density = "+density);
-    if(downsampling == true && density > threshold){
-      // totally arbitrary based on debugging some drawings
-      if(density > threshold + 4){
-        amount = 3;
-      } else if(density > threshold + 2){
-        amount = 2;
-      } else {
-        amount = 1.5;
-      }
-      console.log("downsampling GML, amount="+amount);
+    console.log("GML point density = "+density);
+    if(downsampling_enabled == true && density > density_threshold){
+      console.log('Downsampling GML, density_threshold='+density_threshold+', hyp_threshold='+hyp_threshold);
 
+      // always include undefined values (stroke separators)
       newpts = [];
       for(int i = 0; i < pts.length; i++){
-        // skip a great deal of points, but
-        // always include undefined (stroke separators)
-        if(i % amount == 0 || pts[i] == undefined){
+        hyp = debugPoints(pts[i], pts[i-1]);
+        drop_this_point = hyp > hyp_threshold;
+        if(drop_this_point || pts[i] == undefined){
           newpts.push(pts[i]);
         }
       }
+      pts_diff = pts.length - newpts.length;
+      console.log(pts_diff+" points dropped of "+pts.length+" ("+round(pts_diff/pts.length*100)+"%)");
       oldpts = pts;
       pts = newpts;
     }
+
   }
 
   void restart(){
-    console.log("restarting!.....");
     loopCount += 1;
     frameCount = 0;
     pt = pts[0];
@@ -159,50 +156,54 @@
     prev = undefined;
     queued_at = pt.time*1000;
     drawnPoints = 0;
-
     background(0);
+  }
+
+  void setPoints(){
+    prev = pts[drawnPoints-1];
+    pt = pts[drawnPoints];
+    debugPoints(prev,pt);
+    drawnPoints += 1;
+    if(pts[drawnPoints]){
+      nxt = pts[drawnPoints];
+      queued_at = nxt.time*1000;
+    }
   }
 
   void draw(){
 
+    // We want a negative difference (stroke is upcoming)
+    // or a very slightly positive diff (stroke should have happened N ms ago)
+    diff = round((millis()%end_time)-queued_at);
+    if(diff > framelag_threshold){
+      // console.log("lagging!! "+diff);
+      // setPoints();
+    }
+
     // Dump debugging every once in a while
-    diff = (millis()%end_time)-queued_at;
-    if(frameCount % 50 == 0){
-      if(pt){
-        console.log("loop="+loopCount+" millis="+millis()+" frameCount="+frameCount+" x="+pt.x+" y="+pt.y+" drawnPoints="+drawnPoints+" diff="+diff);
-      }
-      else{
-        console.log("frameCount="+frameCount+"... no point?!?");
-      }
+    if(frameCount % 100 == 0){
+      debugFrame();
     }
 
     // update point if we've reached next one...
     if( (millis()%end_time) > queued_at){
-      prev = pts[drawnPoints-1];
-      pt = pts[drawnPoints];
-      drawnPoints += 1;
-      if(pts[drawnPoints]){
-        nxt = pts[drawnPoints];
-        queued_at = nxt.time*1000;
-      }
+      setPoints();
       // console.log("millis="+millis()+" drawnPoints="+drawnPoints+" pt.time="+pt.time*1000+" queued_at="+queued_at+" diff="+diff);
     }
 
     // drawing rules -- e.g. see if we're done or need to skip or point
     if( (millis()/loopCount) >= end_time ){
-      console.log("millis>end_time, "+drawnPoints+" points drawn of "+pts.length+ "... "+Math.round(drawnPoints/pts.length*100)+"%");
+      console.log("Drawing time complete, "+drawnPoints+" points drawn of "+pts.length+ " = "+Math.round(drawnPoints/pts.length*100)+"%");
       // exit();
       restart();
     }
-    // if(nxt == undefined){ console.log("no next point, drawing complete."); exit(); }
     if(pt == undefined || pt == []){ return; } // if missing current pt, we are skipping
     if(prev == undefined || prev == []){ prev = pt; } // if missing the prev, we're at the beginning of a new stroke
 
     // geometry 101
     dimx = (prev.x -pt.x)*width;
     dimy = (prev.y -pt.y)*height;
-    hyp = sqrt(pow(dimx,2),pow(dimy,2));
-    // TODO angle of inflection
+    // hyp = sqrt(pow(dimx,2),pow(dimy,2));
 
     // transform display space if specified
     translate(translation[0], translation[1]);
@@ -210,10 +211,17 @@
 
     // finally, draw
     // use speed-sensitive stroke widths
-    strokeWidth = (1 / (sqrt(pow(dimx,2),pow(dimy,2)) + 50))*1000;
-    strokeWeight(strokeWidth);
+    if(speed_sensitive_strokes == true){
+      if(dimx == 0 || dimy == 0) {
+        strokeWidth = default_stroke_width;
+      }
+      else {
+        strokeWidth = (1 / (sqrt(pow(dimx,2),pow(dimy,2)) + 50))*1000;
+      }
+      strokeWeight(strokeWidth);
+    }
     stroke(255);
-    
+
     x1 = parseInt(prev.x*width);
     y1 = parseInt(prev.y*height);
     x2 = parseInt(pt.x*width);
@@ -221,6 +229,28 @@
 
     // console.log("1=("+x1+","+y1+") 2=("+x2+","+y2+")");
     line(x1, y1, x2, y2);
+  }
+
+  void debugFrame(){
+    if(pt){
+      console.log("loop="+loopCount+" millis="+millis()+" frameCount="+frameCount+" x="+pt.x+" y="+pt.y+" drawnPoints="+drawnPoints+" diff="+diff);
+    }
+    else{
+      console.log("frameCount="+frameCount+"... no point?!?");
+    }
+  }
+
+  void debugPoints(a,b){ // distance from points a to b
+    if(!a || !b) return;
+    dimx = (b.x - a.x);
+    dimy = (b.y - a.y);
+    hyp = sqrt(pow(dimx,2),pow(dimy,2));
+    // console.log(posNeg(dimx)+", "+posNeg(dimy)+" hyp="+hyp);
+    return hyp;
+  }
+
+  void posNeg(value){
+    return (value > 0 ? "+"+value : value);
   }
   </script>
   <script src="processing.min.js" type="text/javascript" charset="utf-8"></script>
