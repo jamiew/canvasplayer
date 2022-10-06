@@ -3,20 +3,20 @@ canvasplayer
 ------------
 
 A quick stab at drawing GML (Graffiti Markup Language) data using Processing.js
-powered by javscript, HTML5 <canvas>, and http://000000book.com
+powered by javscript, HTML5 <canvas>, and https://000000book.com
 
-Online demo here: http://jamiedubs.com/canvasplayer
-Code: http://github.com/jamiew/canvasplayer
+Online demo here: https://jamiedubs.com/canvasplayer
+Code: https://github.com/jamiew/canvasplayer
 
 GML data is pulled via JSONp from #000000book, an open database of GML files
-http://000000book.com/data/147.json
-http://000000book.com/data/147.gml
-http://000000book.com/data/147
+https://000000book.com/data/147.json
+https://000000book.com/data/147.gml
+https://000000book.com/data/147
 
 
 We'll be posting more GML demos, stay tuned:
 http://fffff.at
-http://twitter.com/fffffat 
+https://twitter.com/fffffat 
 
 IRC channel is #fatlab on irc.freenode.net
 irc://irc.freenode.net/#fatlab
