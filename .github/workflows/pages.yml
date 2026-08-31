@@ -4,7 +4,7 @@ name: Pages
 # build step -- the upload is the build.
 on:
   push:
-    branches: [master]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
