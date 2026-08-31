@@ -122,7 +122,7 @@
 
     .tagline {
       margin: 14px auto 0;
-      max-width: 66ch;
+      max-width: 72ch;
       font: 400 13px/1.6 var(--sans);
       color: var(--mute);
     }
@@ -263,19 +263,7 @@
     .switches { margin-top: 14px; display: grid; gap: 8px; }
     .switch { display: grid; grid-template-columns: 66px minmax(0, 1fr); gap: 12px; align-items: start; }
     .switch .eyebrow { padding-top: 6px; }
-    .switch .set { display: flex; flex-wrap: wrap; gap: 6px; }
-
-    /* In the rail there is no room for a label beside the buttons, so it goes
-       above and the buttons wrap in the width that is left. */
-    @media (min-width: 1000px) {
-      .switches { margin-top: 0; gap: 18px; }
-      .switch { grid-template-columns: minmax(0, 1fr); gap: 7px; }
-      .switch .eyebrow { padding-top: 0; }
-      /* Joined borders only read as one control on a single row, and mode
-         wraps to three in the rail. The filled state carries it instead. */
-      .set.segmented { gap: 6px; }
-      .set.segmented button + button { margin-left: 0; }
-    }
+    .switch .set { display: flex; flex-wrap: wrap; gap: 8px 6px; }
 
     button {
       font: 500 11px var(--mono);
@@ -297,6 +285,18 @@
     .set.segmented { gap: 0; }
     .set.segmented button + button { margin-left: -1px; }
     .set.segmented button:hover:not(:disabled) { position: relative; z-index: 1; }
+
+    /* Must follow .set.segmented above, or that wins on equal specificity and
+       mode keeps its joined borders and zero row gap in the rail. */
+    @media (min-width: 1000px) {
+      .switches { margin-top: 0; gap: 20px; }
+      .switch { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+      .switch .eyebrow { padding-top: 0; }
+      /* Joined borders only read as one control on a single row, and mode
+         wraps to four in the rail. The filled state carries it instead. */
+      .set.segmented { gap: 8px 6px; }
+      .set.segmented button + button { margin-left: 0; }
+    }
 
     /* --- footer ----------------------------------------------------------- */
 
@@ -358,8 +358,7 @@
     <h1>canvasplayer</h1>
     <p class="tagline">
       <a href="https://fffff.at/gml-week-graffiti-markup-language/">Graffiti Markup Language</a>
-      visualization demo. See <a href="https://github.com/jamiew/canvasplayer">GitHub</a>
-      and <a href="https://000000book.com">000000book.com</a> for more.
+      visualization demo. <a href="https://github.com/jamiew/canvasplayer">View code on GitHub</a>
     </p>
   </header>
 
