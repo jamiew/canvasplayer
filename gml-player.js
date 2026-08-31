@@ -20,10 +20,10 @@
   var LAYERS = ['ink', 'drips', 'vectors', 'points', 'bounds', 'graph'];
 
   // How the ink itself is drawn. One at a time.
-  var MODES = ['marker', 'hairline', 'outline', 'dots', 'spray', 'skeleton'];
+  var MODES = ['marker', 'smooth', 'chisel', 'hairline', 'outline', 'dots', 'spray', 'skeleton'];
 
   // Combinable treatments applied on top of whichever mode is active.
-  var EFFECTS = ['glow', 'ghost', 'jitter', 'fade'];
+  var EFFECTS = ['ghost', 'pressure', 'bleed', 'jitter', 'fade'];
 
   var DEFAULTS = {
     // Fractions of the artwork's on-screen size. A marker lays down more ink
@@ -44,10 +44,20 @@
     sprayDensity: 6,
     sprayScatter: 1.1,
 
-    glow: 14,
     jitter: 0.9,
     fadeWindow: 1.6,
     ghostAlpha: 0.14,
+    // Fast strokes lay down less ink, so alpha follows speed as well as width.
+    pressureFloor: 0.3,
+    // Ink soaking into the surface: a wider, fainter pass under the stroke.
+    bleedSpread: 1.5,
+    bleedAlpha: 0.16,
+
+    // A flat nib held at a fixed angle. Width comes from direction, not speed.
+    nib: 0.05,
+    nibAngle: -Math.PI / 4,
+    // Points inserted per captured segment in smooth mode.
+    smoothSteps: 4,
 
     // Breathing room around the drawing, as a fraction of the frame.
     pad: 0.08,
@@ -208,9 +218,11 @@
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.opts = Object.assign({}, DEFAULTS, options || {});
-    this.layers = { ink: true, drips: true, vectors: false, points: false, bounds: false, graph: false };
-    this.effects = { glow: false, ghost: false, jitter: false, fade: false };
+    this.layers = { ink: true, drips: true, vectors: true, points: true, bounds: false, graph: true };
+    this.effects = { ghost: true, pressure: false, bleed: false, jitter: false, fade: false };
     this.mode = 'marker';
+    // Width multiplier, raised for the bleed pass under the stroke.
+    this.spread = 1;
     this.playing = false;
     this.time = 0;
     this.drips = [];
@@ -335,7 +347,7 @@
     for (var i = from; i < to; i++) {
       var jx = jitter ? (noise(si * 91 + i, 7) - 0.5) * jitter : 0;
       var jy = jitter ? (noise(si * 91 + i, 13) - 0.5) * jitter : 0;
-      out.push([this.px(pts[i][0]) + jx, this.py(pts[i][1]) + jy, stroke.width[i] * this.unit]);
+      out.push([this.px(pts[i][0]) + jx, this.py(pts[i][1]) + jy, stroke.width[i] * this.unit * this.spread]);
     }
     if (partial > 0 && to < pts.length && to > from) {
       var a = pts[to - 1];
@@ -343,11 +355,42 @@
       out.push([
         this.px(lerp(a[0], b[0], partial)),
         this.py(lerp(a[1], b[1], partial)),
-        lerp(stroke.width[to - 1], stroke.width[to], partial) * this.unit
+        lerp(stroke.width[to - 1], stroke.width[to], partial) * this.unit * this.spread
       ]);
     }
     return out;
   };
+
+  function catmull(a, b, c, d, t) {
+    var t2 = t * t;
+    return 0.5 * ((2 * b) + (c - a) * t +
+      (2 * a - 5 * b + 4 * c - d) * t2 +
+      (3 * b - a - 3 * c + d) * t2 * t);
+  }
+
+  /*
+   * Catmull-Rom through the samples. Capture hardware samples on a pixel grid,
+   * so a slow hand records as a staircase; this puts the curve back.
+   */
+  function smooth(path, steps) {
+    if (path.length < 3) return path;
+    var out = [path[0]];
+    for (var i = 0; i < path.length - 1; i++) {
+      var p0 = path[i > 0 ? i - 1 : 0];
+      var p1 = path[i];
+      var p2 = path[i + 1];
+      var p3 = path[i + 2 < path.length ? i + 2 : path.length - 1];
+      for (var k = 1; k <= steps; k++) {
+        var t = k / steps;
+        out.push([
+          catmull(p0[0], p1[0], p2[0], p3[0], t),
+          catmull(p0[1], p1[1], p2[1], p3[1], t),
+          lerp(p1[2], p2[2], t)
+        ]);
+      }
+    }
+    return out;
+  }
 
   /*
    * Fill a stroke as a ribbon: walk the centreline offset by half the width
@@ -416,6 +459,25 @@
     }
   };
 
+  /*
+   * A flat nib held at one angle. The ribbon is the area the nib sweeps, so
+   * the line is fat across the nib and hairline along it. That is where a
+   * marker handstyle gets its shape from, and it ignores speed entirely.
+   */
+  GmlPlayer.prototype.chisel = function (ctx, path) {
+    var half = this.opts.nib * this.unit / 2;
+    var nx = Math.cos(this.opts.nibAngle) * half;
+    var ny = Math.sin(this.opts.nibAngle) * half;
+    var i;
+
+    ctx.beginPath();
+    ctx.moveTo(path[0][0] + nx, path[0][1] + ny);
+    for (i = 1; i < path.length; i++) ctx.lineTo(path[i][0] + nx, path[i][1] + ny);
+    for (i = path.length - 1; i >= 0; i--) ctx.lineTo(path[i][0] - nx, path[i][1] - ny);
+    ctx.closePath();
+    ctx.fill();
+  };
+
   /* Particles scattered across the width of the line, thickest where slowest. */
   GmlPlayer.prototype.spray = function (ctx, path, si) {
     var density = Math.max(1, Math.round(this.opts.sprayDensity));
@@ -465,6 +527,12 @@
     if (!path.length) return;
 
     switch (this.mode) {
+      case 'smooth':
+        this.ribbon(ctx, smooth(path, this.opts.smoothSteps), true);
+        break;
+      case 'chisel':
+        this.chisel(ctx, path);
+        break;
       case 'hairline':
         this.polyline(ctx, path, this.opts.hairline);
         break;
@@ -492,6 +560,10 @@
    */
   GmlPlayer.prototype.drawInk = function (ctx, t, progress) {
     var self = this;
+    var base = ctx.globalAlpha;
+    // Fade varies alpha with age, pressure with speed. Either one means the
+    // stroke has to be drawn in slices rather than as one path.
+    var sliced = this.effects.fade || this.effects.pressure;
 
     this.strokes.forEach(function (stroke, si) {
       var p = progress[si];
@@ -500,7 +572,16 @@
       ctx.fillStyle = self.opts.color;
       ctx.strokeStyle = self.opts.color;
 
-      if (!self.effects.fade) {
+      // Ink soaking outwards: a wider, fainter pass under the stroke itself.
+      if (self.effects.bleed) {
+        ctx.globalAlpha = base * self.opts.bleedAlpha;
+        self.spread = self.opts.bleedSpread;
+        self.drawStroke(ctx, stroke, si, 0, p.count, p.partial);
+        self.spread = 1;
+        ctx.globalAlpha = base;
+      }
+
+      if (!sliced) {
         self.drawStroke(ctx, stroke, si, 0, p.count, p.partial);
         return;
       }
@@ -511,12 +592,19 @@
       var step = Math.ceil(p.count / slices);
       for (var from = 0; from < p.count; from += step) {
         var to = Math.min(from + step + 1, p.count);
-        var age = t - pts[Math.min(to, pts.length) - 1][2];
-        var alpha = clamp(1 - age / self.opts.fadeWindow, 0.04, 1);
-        ctx.globalAlpha = alpha;
+        var last = Math.min(to, pts.length) - 1;
+        var alpha = 1;
+        if (self.effects.fade) {
+          alpha *= clamp(1 - (t - pts[last][2]) / self.opts.fadeWindow, 0.04, 1);
+        }
+        if (self.effects.pressure) {
+          alpha *= lerp(1, self.opts.pressureFloor,
+            clamp((stroke.speed[last] || 0) / self.peakSpeed, 0, 1));
+        }
+        ctx.globalAlpha = base * alpha;
         self.drawStroke(ctx, stroke, si, from, to, to === p.count ? p.partial : 0);
       }
-      ctx.globalAlpha = 1;
+      ctx.globalAlpha = base;
     });
   };
 
@@ -737,69 +825,6 @@
     ctx.restore();
   };
 
-  /* --- compositing -------------------------------------------------------- */
-
-  /*
-   * Glow applies to the finished ink, not to each stroke. shadowBlur on the
-   * context makes every fill pay for a blur, which ground spray mode to a
-   * halt and stacked halos where strokes overlapped.
-   */
-  GmlPlayer.prototype.scratch = function (name, scale) {
-    if (typeof document === 'undefined') return null;
-    var key = '_' + name;
-    var w = Math.max(Math.round(this.canvas.width * (scale || 1)), 1);
-    var h = Math.max(Math.round(this.canvas.height * (scale || 1)), 1);
-    var canvas = this[key] || (this[key] = document.createElement('canvas'));
-    if (canvas.width !== w || canvas.height !== h) {
-      canvas.width = w;
-      canvas.height = h;
-    }
-    return canvas;
-  };
-
-  GmlPlayer.prototype.layerContext = function () {
-    var canvas = this.scratch('inkLayer');
-    if (!canvas) return null;
-    var g = canvas.getContext('2d');
-    g.setTransform(1, 0, 0, 1, 0, 0);
-    g.clearRect(0, 0, canvas.width, canvas.height);
-    g.globalCompositeOperation = 'source-over';
-    g.globalAlpha = 1;
-    g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    return g;
-  };
-
-  // Put the finished ink on the canvas, through the glow. Only reached with
-  // glow on; render() draws straight to the canvas otherwise.
-  GmlPlayer.prototype.compose = function (source) {
-    var ctx = this.ctx;
-
-    ctx.save();
-    // Composite in device pixels: the layer is already at that scale.
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-
-    // The halo is blurred at half resolution and scaled back up. A blur costs
-    // in proportion to the pixels it covers, and at full size on a retina
-    // display this was the most expensive thing in the frame. The crisp layer
-    // goes on top, so only the halo is approximate.
-    var halo = this.scratch('glowLayer', 0.5);
-    if (halo) {
-      var hg = halo.getContext('2d');
-      hg.setTransform(1, 0, 0, 1, 0, 0);
-      hg.globalCompositeOperation = 'copy';
-      hg.clearRect(0, 0, halo.width, halo.height);
-      hg.globalCompositeOperation = 'source-over';
-      hg.shadowColor = this.opts.color;
-      hg.shadowBlur = this.opts.glow * this.dpr * 0.5;
-      hg.drawImage(source, 0, 0, halo.width, halo.height);
-      hg.shadowBlur = 0;
-      ctx.drawImage(halo, 0, 0, this.canvas.width, this.canvas.height);
-    }
-
-    ctx.drawImage(source, 0, 0);
-    ctx.restore();
-  };
-
   /* --- frame ------------------------------------------------------------- */
 
   GmlPlayer.prototype.render = function () {
@@ -817,8 +842,7 @@
 
     var progress = this.progress(t);
 
-    // Where the tag is going, faint under where it has got to. Drawn straight
-    // to the canvas so the glow does not pick it up.
+    // Where the tag is going, faint under where it has got to.
     if (this.layers.ink && this.effects.ghost) {
       var whole = this.strokes.map(function (s) { return { count: s.points.length, partial: 0 }; });
       ctx.save();
@@ -830,15 +854,10 @@
     if (this.layers.drips) this.seedDrips(t);
 
     if (this.layers.ink || this.layers.drips) {
-      var buffered = this.effects.glow && this.layerContext();
-      var target = buffered || ctx;
-
-      target.save();
-      if (this.layers.ink) this.drawInk(target, t, progress);
-      if (this.layers.drips) this.drawDrips(target, t);
-      target.restore();
-
-      if (buffered) this.compose(buffered.canvas);
+      ctx.save();
+      if (this.layers.ink) this.drawInk(ctx, t, progress);
+      if (this.layers.drips) this.drawDrips(ctx, t);
+      ctx.restore();
     }
 
     if (this.layers.vectors) this.drawVectors(progress);

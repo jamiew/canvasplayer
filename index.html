@@ -122,7 +122,7 @@
 
     .tagline {
       margin: 14px auto 0;
-      max-width: 52ch;
+      max-width: 66ch;
       font: 400 13px/1.6 var(--sans);
       color: var(--mute);
     }
@@ -166,6 +166,7 @@
     #index li + li { margin-top: 2px; }
     #index ul a { display: block; font-size: 13.5px; line-height: 1.5; text-decoration: none; }
     #index ul a:hover { text-decoration: underline; }
+    #index .num { color: var(--mute); font: 400 11px var(--mono); }
     #index ul a[aria-current] { font-weight: 700; }
     /* In the gutter, so selecting a tag never re-flows the list. */
     #index ul a[aria-current]:after {
@@ -355,25 +356,29 @@
 
   <header class="masthead">
     <h1>canvasplayer</h1>
-    <p class="tagline">Graffiti Markup Language, replayed from its own timestamps.</p>
+    <p class="tagline">
+      <a href="https://fffff.at/gml-week-graffiti-markup-language/">Graffiti Markup Language</a>
+      visualization demo. See <a href="https://github.com/jamiew/canvasplayer">GitHub</a>
+      and <a href="https://000000book.com">000000book.com</a> for more.
+    </p>
   </header>
 
   <div class="layout">
     <nav id="index">
-      <div class="eyebrow">Tags</div>
+      <div class="eyebrow">Example tags</div>
       <ul>
-        <li><a href="?id=161" id="link-161">Katsu</a></li>
-        <li><a href="?id=158" id="link-158">Jesus Saves</a></li>
-        <li><a href="?id=1399" id="link-1399">Seen</a></li>
-        <li><a href="?id=818" id="link-818">Hell</a></li>
-        <li><a href="?id=147" id="link-147">hello world</a></li>
-        <li><a href="?id=842" id="link-842">404</a></li>
+        <li><a href="?id=161" id="link-161">Katsu <span class="num">#161</span></a></li>
+        <li><a href="?id=158" id="link-158">Jesus Saves <span class="num">#158</span></a></li>
+        <li><a href="?id=1399" id="link-1399">Seen <span class="num">#1399</span></a></li>
+        <li><a href="?id=818" id="link-818">Hell <span class="num">#818</span></a></li>
+        <li><a href="?id=147" id="link-147">hello world <span class="num">#147</span></a></li>
+        <li><a href="?id=842" id="link-842">404 <span class="num">#842</span></a></li>
       </ul>
       <ul class="group">
         <li><a href="?latest" id="link-latest">Latest</a></li>
         <li><a href="?random" id="link-random">Random</a></li>
       </ul>
-      <footer>more on <a href="https://000000book.com">000000book.com</a></footer>
+      <footer>find more tags on <a href="https://000000book.com">000000book.com</a></footer>
     </nav>
 
     <div class="deck">
@@ -404,7 +409,7 @@
         <span class="set segmented" id="modes" role="radiogroup" aria-labelledby="lbl-mode"></span>
       </div>
       <div class="switch">
-        <span class="eyebrow" id="lbl-fx">Ink</span>
+        <span class="eyebrow" id="lbl-fx">Effects</span>
         <span class="set" id="effects" aria-labelledby="lbl-fx"></span>
       </div>
       <div class="switch">
