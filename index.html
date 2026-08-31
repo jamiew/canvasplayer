@@ -37,12 +37,11 @@
       color-scheme: light;
       --paper: #fff;
       --ink: #000;
-      --rule: #e0e0e0;
-      --rule-soft: #f0f0f0;
-      --mute: #767676;
+      --rule: #d9d9d9;
+      --rule-soft: #ececec;
+      --mute: #6b6b6b;
 
       --sans: "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
-      --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 
       /* One frame at one size for every tag, with the drawing fitted inside.
          Not a viewport unit: sizing off the window changed the drawing, the
@@ -56,17 +55,17 @@
       color-scheme: dark;
       --paper: #000;
       --ink: #fff;
-      --rule: #2e2e2e;
-      --rule-soft: #1c1c1c;
-      --mute: #909090;
+      --rule: #333;
+      --rule-soft: #222;
+      --mute: #9a9a9a;
     }
 
     * { box-sizing: border-box; }
 
     body {
       margin: 0 auto;
-      padding: 64px 32px 88px;
-      max-width: 1060px;
+      padding: 28px 24px 56px;
+      max-width: 1000px;
       background: var(--paper);
       color: var(--ink);
       font-family: var(--sans);
@@ -109,25 +108,20 @@
 
     /* --- masthead --------------------------------------------------------- */
 
-    .masthead { text-align: center; margin-bottom: 62px; }
+    .masthead { text-align: center; margin-bottom: 26px; }
 
-    /* Small and tracked out, not big and tight. The frame is the hero. */
     h1 {
       margin: 0;
-      font-size: clamp(1.05rem, 2.6vw, 1.35rem);
-      font-weight: 400;
-      letter-spacing: 0.34em;
-      /* The tracking hangs off the last letter, so the word reads off-centre
-         without this. */
-      text-indent: 0.34em;
-      line-height: 1.2;
+      font-size: clamp(1.9rem, 5.5vw, 2.6rem);
+      font-weight: 700;
+      letter-spacing: -0.045em;
+      line-height: 1;
     }
 
     .tagline {
-      margin: 22px auto 0;
+      margin: 12px auto 0;
       max-width: 72ch;
-      font: 400 11.5px/1.7 var(--sans);
-      letter-spacing: 0.01em;
+      font: 400 13px/1.6 var(--sans);
       color: var(--mute);
     }
 
@@ -143,7 +137,7 @@
          and pushed the tag list off the left edge around 900px. */
       grid-template-columns: minmax(0, 1fr) var(--stage) minmax(0, 1fr);
       grid-template-areas: "index deck ." "index switches .";
-      gap: 0 40px;
+      gap: 0 24px;
       align-items: start;
     }
 
@@ -152,8 +146,8 @@
     .switches { grid-area: switches; }
 
     .eyebrow {
-      font: 400 9px var(--mono);
-      letter-spacing: 0.24em;
+      font: 500 10px var(--sans);
+      letter-spacing: 0.18em;
       text-transform: uppercase;
       color: var(--mute);
     }
@@ -161,20 +155,19 @@
     /* --- tag index -------------------------------------------------------- */
 
     #index { text-align: right; padding-top: 2px; }
-    #index .eyebrow { margin-bottom: 16px; }
-    #index ul { list-style: none; margin: 0 0 18px; padding: 0; }
-    #index li + li { margin-top: 5px; }
-    #index ul a { display: block; font-size: 12.5px; line-height: 1.5; text-decoration: none; }
+    #index .eyebrow { margin-bottom: 10px; }
+    #index ul { list-style: none; margin: 0 0 14px; padding: 0; }
+    #index li + li { margin-top: 2px; }
+    #index ul a { display: block; font-size: 13.5px; line-height: 1.5; text-decoration: none; }
     #index ul a:hover { text-decoration: underline; }
-    #index .num { color: var(--mute); font: 400 10px var(--mono); letter-spacing: 0.04em; }
+    #index .num { color: var(--mute); font: 400 11px var(--sans); }
     #index ul a[aria-current] { font-weight: 700; }
-    /* In the gutter, so selecting a tag never re-flows the list. A rule reads
-       quieter than an arrow. */
+    /* In the gutter, so selecting a tag never re-flows the list. */
     #index ul a[aria-current]:after {
-      content: "\2014"; position: absolute; margin-left: 10px; color: var(--rule); font-weight: 400;
+      content: "\2190"; position: absolute; margin-left: 8px; color: var(--mute); font-weight: 400;
     }
-    #index .group { border-top: 1px solid var(--rule-soft); padding-top: 16px; margin-top: 16px; }
-    #index footer { margin-top: 24px; font-size: 11px; color: var(--mute); line-height: 1.6; }
+    #index .group { border-top: 1px solid var(--rule-soft); padding-top: 12px; margin-top: 12px; }
+    #index footer { margin-top: 18px; font-size: 12px; color: var(--mute); line-height: 1.5; }
 
     /* --- stage ------------------------------------------------------------ */
 
@@ -193,20 +186,19 @@
     .stage .status {
       position: absolute; inset: 0; z-index: 2;
       display: grid; place-items: center;
-      font: 500 11px var(--mono); letter-spacing: 0.16em; text-transform: uppercase;
+      font: 500 11px var(--sans); letter-spacing: 0.16em; text-transform: uppercase;
       color: #8a8a8a; text-align: center; padding: 0 24px;
     }
     .stage .status[hidden] { display: none; }
 
     /* --- transport -------------------------------------------------------- */
 
-    .transport { display: flex; align-items: center; gap: 14px; margin-top: 22px; }
+    .transport { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
 
-    .transport button { min-width: 68px; }
+    .transport button { min-width: 62px; }
 
     .clock {
-      font: 400 10px var(--mono);
-      letter-spacing: 0.04em;
+      font: 500 11px var(--sans);
       font-variant-numeric: tabular-nums;
       color: var(--mute);
       white-space: nowrap;
@@ -247,30 +239,29 @@
     /* --- readout ---------------------------------------------------------- */
 
     #readout {
-      margin-top: 20px;
-      padding-top: 16px;
+      margin-top: 12px;
+      padding-top: 11px;
       border-top: 1px solid var(--rule-soft);
-      font: 400 10.5px/1.8 var(--mono);
-      letter-spacing: 0.03em;
+      font: 400 11.5px/1.7 var(--sans);
       color: var(--mute);
       /* Two lines reserved, padding included. A long client name wraps to
          two, and reserving less jumped the switches below. */
-      min-height: calc(16px + 2 * 1.8 * 10.5px);
+      min-height: calc(11px + 2 * 1.7 * 11.5px);
     }
     #readout b { color: var(--ink); font-weight: 500; }
-    #readout .sep { color: var(--rule); margin: 0 9px; }
+    #readout .sep { color: var(--rule); margin: 0 7px; }
 
     /* --- switches --------------------------------------------------------- */
 
-    .switches { margin-top: 22px; display: grid; gap: 14px; }
-    .switch { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 16px; align-items: start; }
-    .switch .eyebrow { padding-top: 8px; }
-    .switch .set { display: flex; flex-wrap: wrap; gap: 8px 7px; }
+    .switches { margin-top: 14px; display: grid; gap: 8px; }
+    /* 70px is INK MODE on one line, the widest of the three labels. */
+    .switch { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 12px; align-items: start; }
+    .switch .eyebrow { padding-top: 6px; }
+    .switch .set { display: flex; flex-wrap: wrap; gap: 8px 6px; }
 
     button {
-      font: 400 10px var(--mono);
-      letter-spacing: 0.06em;
-      padding: 7px 11px;
+      font: 500 11px var(--sans);
+      padding: 5px 9px;
       background: var(--paper);
       color: var(--mute);
       border: 1px solid var(--rule);
@@ -292,35 +283,35 @@
        mode keeps its joined borders and zero row gap in the rail. */
     @media (min-width: 1000px) {
       .layout { grid-template-areas: "index deck switches"; }
-      .switches { margin-top: 0; gap: 30px; }
-      .switch { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+      .switches { margin-top: 0; gap: 20px; }
+      .switch { grid-template-columns: minmax(0, 1fr); gap: 8px; }
       .switch .eyebrow { padding-top: 0; }
       /* Joined borders only read as one control on a single row, and mode
          wraps to four in the rail. The filled state carries it instead. */
-      .set.segmented { gap: 8px 7px; }
+      .set.segmented { gap: 8px 6px; }
       .set.segmented button + button { margin-left: 0; }
     }
 
     /* --- footer ----------------------------------------------------------- */
 
     footer.page {
-      margin-top: 72px; padding-top: 26px;
+      margin-top: 40px; padding-top: 18px;
       border-top: 1px solid var(--rule-soft);
-      font-size: 11px; line-height: 1.8; letter-spacing: 0.02em; color: var(--mute);
+      font-size: 12.5px; line-height: 1.7; color: var(--mute);
       text-align: center;
     }
     footer.page a { color: var(--mute); }
     footer.page a:hover { color: var(--ink); }
-    footer.page .sep { color: var(--rule); margin: 0 10px; }
+    footer.page .sep { color: var(--rule); margin: 0 6px; }
 
     /* Below this the rails have no useful width left, so everything stacks.
        The frame shrinks with the column, which caps it at --stage. */
     @media (max-width: 859px) {
-      body { padding: 40px 20px 56px; }
+      body { padding: 20px 18px 40px; }
       .layout {
         grid-template-columns: minmax(0, var(--stage));
         grid-template-areas: "index" "deck" "switches";
-        gap: 30px; justify-items: center; justify-content: center;
+        gap: 22px; justify-items: center; justify-content: center;
       }
       #index { text-align: center; width: 100%; }
       #index ul { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 16px; margin-bottom: 0; }
@@ -329,7 +320,7 @@
       #index footer { margin-top: 10px; }
       #index ul a[aria-current]:after { display: none; }
       #index a[aria-current] { text-decoration: underline; }
-      .switch { grid-template-columns: 68px minmax(0, 1fr); gap: 12px; }
+      .switch { gap: 10px; }
     }
   </style>
 </head>
