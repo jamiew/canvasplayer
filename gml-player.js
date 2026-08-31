@@ -4,23 +4,13 @@
  * by Jamie Wilkinson <https://jamiedubs.com> <https://github.com/jamiew>
  * Public domain, Free Art & Technology (F.A.T.) Lab. No rights reserved.
  *
- * Plays a tag back in real time, from the timestamps the capture app recorded.
- * No dependencies. Feed it the payload GmlSource builds, or the same shape
- * from anywhere else.
+ * Plays a tag in real time from the timestamps the capture app recorded. No
+ * dependencies. Feed it the payload GmlSource builds, or the same shape from
+ * anywhere else.
  *
- * This replaces the Processing.js sketch this repo carried from 2009, which:
- *
- * - advanced at most one point per frame, so a dense tag silently fell behind
- *   its own timeline. That is what the downsampling hack was working around
- * - derived stroke weight from `sqrt(pow(dimx,2), pow(dimy,2))`, and sqrt
- *   takes one argument, so the vertical component was discarded and width
- *   only ever tracked horizontal speed
- * - rotated landscape captures by `rotate(80)`, which Processing reads as 80
- *   radians rather than 80 degrees
- * - drew onto a fixed 800x580 canvas, so taller tags were cropped
- * - mapped normalized x and y straight onto canvas width and height. GML
- *   normalizes the two axes independently, so the capture screen's aspect has
- *   to be reapplied or every tag comes out squashed
+ * Replaces the 2009 Processing.js sketch, which advanced one point per frame,
+ * measured speed on the x axis alone, rotated by 80 radians, and cropped
+ * anything taller than its fixed canvas. See the README.
  */
 
 (function (global) {
@@ -33,20 +23,19 @@
   var MODES = ['marker', 'hairline', 'outline', 'dots', 'spray', 'skeleton'];
 
   // Combinable treatments applied on top of whichever mode is active.
-  var EFFECTS = ['glow', 'ghost', 'chromatic', 'jitter', 'fade'];
+  var EFFECTS = ['glow', 'ghost', 'jitter', 'fade'];
 
   var DEFAULTS = {
-    // Stroke width, as a fraction of the artwork's on-screen size. A marker
-    // lays down more ink the slower it travels, so speed maps to width
-    // inversely.
+    // Fractions of the artwork's on-screen size. A marker lays down more ink
+    // the slower it moves, so speed maps to width inversely.
     maxWidth: 0.052,
     minWidth: 0.014,
-    // Fraction of this tag's peak speed that maps to the thinnest line.
+    // Fraction of this tag's peak speed that draws the thinnest line.
     speedBias: 0.55,
-    // How hard the width follows speed. Higher smooths out capture jitter.
+    // Higher smooths out capture jitter.
     smoothing: 0.72,
 
-    // Below this speed the pen counts as dwelling, and ink starts to pool.
+    // Below this speed the pen is dwelling, and ink pools.
     dwellSpeed: 0.14,
     dripLength: 1,
 
@@ -57,9 +46,11 @@
 
     glow: 14,
     jitter: 0.9,
-    chromatic: 3,
     fadeWindow: 1.6,
     ghostAlpha: 0.14,
+
+    // Breathing room around the drawing, as a fraction of the frame.
+    pad: 0.08,
 
     color: '#ffffff',
     background: '#000000',
@@ -69,9 +60,8 @@
     speed: 1
   };
 
-  // Longest pause kept as recorded, and what an over-long one is replaced with.
-  // Samples inside a stroke land 10-40ms apart, so anything approaching these
-  // is the capture stalling rather than the hand moving.
+  // Longest pause kept as recorded, and what a longer one becomes. Samples
+  // land 10-40ms apart, so anything near these is a stall, not a hand.
   var MAX_STROKE_GAP = 2.5;
   var MAX_STROKE_GAP_FILL = 0.4;
   var MAX_PAUSE = 1.2;
@@ -82,11 +72,8 @@
   function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
   function lerp(a, b, t) { return a + (b - a) * t; }
 
-  /*
-   * Stable pseudo-random in [0,1) from two integers. Spray and jitter need to
-   * scatter, but a tag has to look the same every time it is played and every
-   * time the panel repaints it, so this stands in for Math.random.
-   */
+  // Stable pseudo-random in [0,1) from two integers. Spray and jitter scatter,
+  // but a tag must look the same on every repaint, so this replaces random.
   function noise(a, b) {
     var h = (a * 374761393 + b * 668265263) | 0;
     h = (h ^ (h >>> 13)) * 1274126177;
@@ -94,10 +81,9 @@
   }
 
   /*
-   * Capture apps are inconsistent about time: some write zeroes, some write
-   * unix epochs, some pause mid-tag and leave a minute-long gap, and a few
-   * emit points out of order. Rather than silently smoothing that over we
-   * repair it and record what was repaired, so debug mode can show it.
+   * Capture apps are inconsistent about time. Some write zeroes, some unix
+   * epochs, some leave minute-long gaps, some emit points out of order. Repair
+   * it, and record the repair so debug mode can show it.
    */
   function repairTiming(strokes) {
     var report = { synthesized: false, reordered: 0, gapsClosed: 0, origin: 0 };
@@ -109,9 +95,8 @@
     var first = times[0];
     var span = Math.max.apply(null, times) - Math.min.apply(null, times);
 
-    // Some apps wrote wall-clock time instead of an offset from the first
-    // sample. Tell seconds from milliseconds by magnitude, not by span: a short
-    // tag has a small span either way.
+    // Some apps wrote wall-clock time, not an offset. Tell seconds from
+    // milliseconds by magnitude: a short tag has a small span either way.
     if (first > 1e6) {
       report.origin = first;
       var ms = first > 1e11;
@@ -122,22 +107,20 @@
       span = ms ? span / 1000 : span;
     }
 
-    // No usable timing at all -- fall back to an even 60Hz so the tag still
-    // draws, and say so rather than pretending the pacing is real.
+    // No usable timing. Fall back to an even 60Hz, and say so.
     if (span <= 0) {
       report.synthesized = true;
       flat.forEach(function (p, i) { p[2] = i / 60; });
       return report;
     }
 
-    // Rebuild the timeline from the gaps between samples rather than editing
-    // timestamps in place: once a gap is closed the repaired clock no longer
-    // lines up with the recorded one, so every later comparison has to be made
-    // against the raw previous time, not the corrected one.
+    // Rebuild from the gaps, not by editing timestamps in place: once a gap
+    // closes, the repaired clock no longer lines up with the recorded one, so
+    // every comparison has to use the raw previous time.
     //
-    // Within a stroke the intervals are the gesture itself and are kept as
-    // recorded. Between strokes they are the writer pausing, which is worth
-    // keeping in miniature but not worth waiting through.
+    // Gaps within a stroke are the gesture, and are kept. Gaps between strokes
+    // are the writer pausing: worth keeping in miniature, not worth waiting
+    // through.
     var clock = 0;
     var prevEnd = null;
     strokes.forEach(function (stroke) {
@@ -164,16 +147,12 @@
   }
 
   /*
-   * Per-point speed and width, computed once up front.
-   *
-   * Width is scaled against this tag's own range rather than a fixed speed:
-   * a big slow piece and a quick throw-up both want to read as marker work,
-   * and what counts as "fast" is only meaningful relative to the rest of the
-   * same hand.
+   * Per-point speed and width, computed once up front. Width scales against
+   * this tag's own range, because "fast" only means anything relative to the
+   * rest of the same hand.
    */
   function measure(strokes, opts) {
     var peak = 0;
-    var i;
 
     strokes.forEach(function (stroke) {
       var pts = stroke.points;
@@ -183,26 +162,24 @@
         var dx = pts[j][0] - pts[j - 1][0];
         var dy = pts[j][1] - pts[j - 1][1];
         var dt = Math.max(pts[j][2] - pts[j - 1][2], 1 / 240);
-        // The bug the old player had: both axes belong in here. It called
-        // sqrt(pow(dx,2), pow(dy,2)), and sqrt takes one argument, so every
-        // vertical stroke measured as motionless and drew at full width.
+        // Both axes belong here. The old player called sqrt with two
+        // arguments, so vertical strokes measured as motionless.
         var speed = Math.sqrt(dx * dx + dy * dy) / dt;
         smoothed = j === 1 ? speed : lerp(speed, smoothed, opts.smoothing);
         stroke.speed[j] = smoothed;
         if (smoothed > peak) peak = smoothed;
       }
-      // The first sample has nothing to measure against. Reading that as a
-      // dead stop made every stroke open with a full-width blob, so it
-      // inherits the speed it was already travelling at.
+      // The first sample has nothing to measure against. Reading it as a dead
+      // stop opened every stroke with a blob, so it inherits the next speed.
       stroke.speed[0] = stroke.speed.length > 1 ? stroke.speed[1] : 0;
     });
 
-    // Most of a stroke sits well under the peak, so mapping against the peak
-    // alone would leave everything at full width. Bias to the busy part.
+    // Most of a stroke sits under the peak, so mapping against the peak alone
+    // leaves everything full width. Bias to the busy part.
     var ceiling = Math.max(peak * opts.speedBias, 1e-4);
     strokes.forEach(function (stroke) {
       stroke.width = new Array(stroke.speed.length);
-      for (i = 0; i < stroke.speed.length; i++) {
+      for (var i = 0; i < stroke.speed.length; i++) {
         var t = clamp(stroke.speed[i] / ceiling, 0, 1);
         stroke.width[i] = lerp(opts.maxWidth, opts.minWidth, Math.pow(t, 0.7));
       }
@@ -232,7 +209,7 @@
     this.ctx = canvas.getContext('2d');
     this.opts = Object.assign({}, DEFAULTS, options || {});
     this.layers = { ink: true, drips: true, vectors: false, points: false, bounds: false, graph: false };
-    this.effects = { glow: false, ghost: false, chromatic: false, jitter: false, fade: false };
+    this.effects = { glow: false, ghost: false, jitter: false, fade: false };
     this.mode = 'marker';
     this.playing = false;
     this.time = 0;
@@ -261,13 +238,8 @@
   };
 
   GmlPlayer.prototype.load = function (data) {
-    this.data = data;
     this.strokes = (data.strokes || []).map(function (s) {
-      return {
-        color: s.color || null,
-        drips: !!s.drips,
-        points: s.points.map(function (p) { return [p[0], p[1], p[2]]; })
-      };
+      return { points: s.points.map(function (p) { return [p[0], p[1], p[2]]; }) };
     });
 
     if (data.rotate) {
@@ -281,14 +253,6 @@
       });
     }
 
-    // GML normalizes x against the capture screen's width and y against its
-    // height, independently. On a 480x320 phone that means one unit across is
-    // 1.5x one unit down, so the screen ratio has to be put back or every tag
-    // comes out squashed along one axis.
-    var screen = data.screen || {};
-    this.aspect = (screen.x > 0 && screen.y > 0) ? (screen.x / screen.y) : 1.5;
-    if (data.rotate) this.aspect = 1 / this.aspect;
-
     this.timing = repairTiming(this.strokes);
     this.peakSpeed = measure(this.strokes, this.opts) || 1;
     this.bounds = bounds(this.strokes);
@@ -301,15 +265,6 @@
     this.time = 0;
     this.drips = [];
     this.seeded = {};
-
-    // Let the frame take the shape of the tag instead of boxing a wide throw-up
-    // and a tall piece into the same rectangle. Clamped so one stray point
-    // cannot stretch the page.
-    var host = this.canvas.parentNode;
-    if (host && host.style) {
-      var shape = ((this.bounds.x1 - this.bounds.x0) * this.aspect) / (this.bounds.y1 - this.bounds.y0);
-      host.style.aspectRatio = clamp(shape, 0.8, 2.4).toFixed(3);
-    }
   };
 
   GmlPlayer.prototype.resize = function () {
@@ -326,28 +281,29 @@
     this.h = h;
     this.dpr = dpr;
 
-    // Fit the drawing's own bounds rather than the full 0..1 space, so tags
-    // that only use a corner of the capture screen still fill the frame.
-    var pad = 0.07;
-    var bw = (this.bounds.x1 - this.bounds.x0) * this.aspect;
+    // Fit the drawing's own bounds, not the full 0..1 space, so a tag that
+    // used one corner still fills the frame.
+    //
+    // One scale for both axes. The capture apps normalized x and y against the
+    // same edge, so a unit across already matches a unit down. Reapplying the
+    // screen's 3:2 ratio on top squashed every landscape capture.
+    var pad = this.opts.pad;
+    var bw = this.bounds.x1 - this.bounds.x0;
     var bh = this.bounds.y1 - this.bounds.y0;
     var scale = Math.min(w * (1 - pad * 2) / bw, h * (1 - pad * 2) / bh);
 
-    this.sx = scale * this.aspect;
-    this.sy = scale;
     this.scale = scale;
-    this.ox = (w - bw * scale) / 2 - this.bounds.x0 * this.sx;
-    this.oy = (h - bh * scale) / 2 - this.bounds.y0 * this.sy;
+    this.ox = (w - bw * scale) / 2 - this.bounds.x0 * scale;
+    this.oy = (h - bh * scale) / 2 - this.bounds.y0 * scale;
 
-    // Stroke widths follow the size of the artwork on screen, not the size of
-    // the viewport, so a tag looks the same in the grid and on its own page.
+    // Widths follow the artwork's on-screen size, not the viewport's.
     this.unit = Math.sqrt(bw * scale * bh * scale);
 
     this.render();
   };
 
-  GmlPlayer.prototype.px = function (x) { return this.ox + x * this.sx; };
-  GmlPlayer.prototype.py = function (y) { return this.oy + y * this.sy; };
+  GmlPlayer.prototype.px = function (x) { return this.ox + x * this.scale; };
+  GmlPlayer.prototype.py = function (y) { return this.oy + y * this.scale; };
 
   /* How far through each stroke playback has reached, at time t. */
   GmlPlayer.prototype.progress = function (t) {
@@ -367,10 +323,9 @@
   };
 
   /*
-   * Screen-space points for a slice of a stroke, as [x, y, width] triples.
-   * `to` is exclusive. The leading edge is interpolated when playback is
-   * partway between two samples, so the line grows smoothly rather than
-   * jumping a whole sample at a time.
+   * Screen-space [x, y, width] triples for a slice of a stroke; `to` is
+   * exclusive. The leading edge is interpolated between samples, so the line
+   * grows smoothly instead of a sample at a time.
    */
   GmlPlayer.prototype.path = function (stroke, si, from, to, partial) {
     var pts = stroke.points;
@@ -395,10 +350,9 @@
   };
 
   /*
-   * Fill the outline of a stroke as a ribbon: walk the centreline offsetting
-   * by half the width along the normal, then walk back down the other side.
-   * Filling that polygon gives a continuously tapering line, which stroking
-   * with a per-segment lineWidth cannot.
+   * Fill a stroke as a ribbon: walk the centreline offset by half the width
+   * along the normal, then back down the other side. That taper is not
+   * possible with a per-segment lineWidth.
    */
   GmlPlayer.prototype.ribbon = function (ctx, path, fill) {
     if (!path.length) return;
@@ -431,10 +385,9 @@
     ctx.closePath();
     if (fill) ctx.fill(); else ctx.stroke();
 
-    // Caps as their own discs rather than arcs spliced into the outline: an
-    // arc between two computed angles picks its sweep direction from the sign
-    // of the difference, and at a stroke's ends that is as likely to take the
-    // long way round, which is what put a notch on every stroke.
+    // Caps as discs, not arcs spliced into the outline. An arc picks its
+    // sweep from the sign of the angle difference, and at a stroke's end that
+    // is as likely to go the long way round, notching every stroke.
     if (!fill) return;
     var ends = [path[0], path[path.length - 1]];
     for (i = 0; i < ends.length; i++) {
@@ -481,8 +434,8 @@
         // Bias toward the centre so the line still reads as a line.
         var across = (noise(si * 131 + i, k * 3 + 2) + noise(si * 131 + i, k * 3 + 5) - 1) * r;
         var size = 0.4 + noise(si * 131 + i, k * 3 + 7) * 1.4;
-        // Squares, not circles: at two pixels across nobody can tell, and a
-        // busy tag draws tens of thousands of these every frame.
+        // Squares, not circles. At two pixels nobody can tell, and a busy tag
+        // draws tens of thousands per frame.
         ctx.fillRect(ax + dx * along + nx * across - size, ay + dy * along + ny * across - size,
           size * 2, size * 2);
       }
@@ -534,21 +487,18 @@
   };
 
   /*
-   * Ink for one frame. With the fade effect on, each stroke is drawn in slices
-   * whose opacity falls off with age, so playback leaves a comet tail instead
-   * of a finished drawing.
+   * Ink for one frame. With fade on, each stroke is drawn in slices whose
+   * opacity falls off with age, leaving a comet tail.
    */
   GmlPlayer.prototype.drawInk = function (ctx, t, progress) {
     var self = this;
-    var stroked = this.mode === 'hairline' || this.mode === 'outline' || this.mode === 'skeleton';
 
     this.strokes.forEach(function (stroke, si) {
       var p = progress[si];
       if (!p.count) return;
 
-      var paint = stroke.color || self.opts.color;
-      ctx.fillStyle = paint;
-      ctx.strokeStyle = paint;
+      ctx.fillStyle = self.opts.color;
+      ctx.strokeStyle = self.opts.color;
 
       if (!self.effects.fade) {
         self.drawStroke(ctx, stroke, si, 0, p.count, p.partial);
@@ -568,13 +518,11 @@
       }
       ctx.globalAlpha = 1;
     });
-    if (stroked) ctx.lineWidth = 1;
   };
 
   /*
-   * Ink runs from two places: where the pen slowed enough to pool, and where a
-   * stroke was lifted while still laying down a heavy line. Both are read out
-   * of the capture data, so the same tag always drips in the same places.
+   * Ink runs where the pen pooled, and where a stroke lifted while still
+   * heavy. Both come from the capture, so a tag always drips the same way.
    */
   GmlPlayer.prototype.seedDrips = function (t) {
     var self = this;
@@ -602,8 +550,8 @@
           width: stroke.width[i] * 0.4,
           length: clamp(0.015 + dwell * 1.2 + pooled * 0.075, 0.015, 0.24),
           born: pts[i][2],
-          // Staggered off the point index so neighbouring runs do not fall in
-          // lockstep, but stably: the same tag drips the same way every time.
+          // Staggered off the point index, so neighbouring runs do not fall
+          // in lockstep. Stable, so the tag drips the same way every time.
           fall: 0.8 + (i % 7) * 0.16
         });
       }
@@ -663,17 +611,19 @@
     // The capture screen itself.
     ctx.strokeStyle = 'rgba(255,255,255,0.24)';
     ctx.setLineDash([2, 3]);
-    ctx.strokeRect(this.px(0), this.py(0), this.sx, this.sy);
+    ctx.strokeRect(this.px(0), this.py(0), this.scale, this.scale);
     ctx.setLineDash([]);
 
     // What the tag actually occupies.
     var b = this.bounds;
-    ctx.strokeStyle = '#f5ff00';
-    ctx.strokeRect(this.px(b.x0), this.py(b.y0), (b.x1 - b.x0) * this.sx, (b.y1 - b.y0) * this.sy);
+    ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+    ctx.setLineDash([5, 4]);
+    ctx.strokeRect(this.px(b.x0), this.py(b.y0), (b.x1 - b.x0) * this.scale, (b.y1 - b.y0) * this.scale);
 
-    // Pinned to the frame rather than to the box: anchored to the box it
-    // landed either on the tag or on the speed graph, depending on the shape.
-    ctx.fillStyle = '#f5ff00';
+    // Pinned to the frame. Anchored to the box, it landed on the tag or on
+    // the speed graph, depending on the shape.
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
     ctx.font = '500 10px ui-monospace, SFMono-Regular, Menlo, monospace';
     ctx.fillText(
       'BBOX ' + b.x0.toFixed(3) + ',' + b.y0.toFixed(3) + ' → ' + b.x1.toFixed(3) + ',' + b.y1.toFixed(3),
@@ -681,7 +631,7 @@
     );
 
     // Origin crosshair.
-    ctx.strokeStyle = 'rgba(245,255,0,0.55)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
     ctx.beginPath();
     ctx.moveTo(this.px(0) - 7, this.py(0));
     ctx.lineTo(this.px(0) + 7, this.py(0));
@@ -702,13 +652,13 @@
       if (!count) return;
       var pts = stroke.points;
 
-      ctx.fillStyle = 'rgba(245,255,0,0.85)';
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
       for (var i = 0; i < count; i++) {
         ctx.fillRect(self.px(pts[i][0]) - 1, self.py(pts[i][1]) - 1, 2, 2);
       }
 
       // Where each stroke begins, numbered in capture order.
-      ctx.fillStyle = '#f5ff00';
+      ctx.fillStyle = '#ffffff';
       ctx.beginPath();
       ctx.arc(self.px(pts[0][0]), self.py(pts[0][1]), 3, 0, TAU);
       ctx.fill();
@@ -736,7 +686,7 @@
         var reach = 6 + mag * 22;
         var x = self.px(pts[i][0]);
         var y = self.py(pts[i][1]);
-        ctx.strokeStyle = 'rgba(245,255,0,' + (0.18 + mag * 0.5).toFixed(3) + ')';
+        ctx.strokeStyle = 'rgba(255,255,255,' + (0.18 + mag * 0.5).toFixed(3) + ')';
         ctx.beginPath();
         ctx.moveTo(x, y);
         ctx.lineTo(x + (dx / len) * reach, y + (dy / len) * reach);
@@ -761,7 +711,7 @@
     ctx.lineTo(this.w - 8, y + h);
     ctx.stroke();
 
-    ctx.strokeStyle = 'rgba(245,255,0,0.75)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.75)';
     ctx.beginPath();
     var started = false;
     this.strokes.forEach(function (stroke) {
@@ -774,7 +724,7 @@
     ctx.stroke();
 
     var px = 8 + (t / this.duration) * (this.w - 16);
-    ctx.strokeStyle = '#f5ff00';
+    ctx.strokeStyle = '#ffffff';
     ctx.beginPath();
     ctx.moveTo(px, y - 4);
     ctx.lineTo(px, y + h);
@@ -790,12 +740,9 @@
   /* --- compositing -------------------------------------------------------- */
 
   /*
-   * Glow and chromatic split are applied to the finished ink as a whole rather
-   * than to each stroke as it is drawn. Setting shadowBlur on the context
-   * makes every fill pay for a blur, so spray mode -- which is thousands of
-   * small arcs -- ground to a halt, and overlapping strokes stacked their
-   * halos on top of each other. Rendering to an offscreen layer and
-   * compositing once is both faster and more correct.
+   * Glow applies to the finished ink, not to each stroke. shadowBlur on the
+   * context makes every fill pay for a blur, which ground spray mode to a
+   * halt and stacked halos where strokes overlapped.
    */
   GmlPlayer.prototype.scratch = function (name, scale) {
     if (typeof document === 'undefined') return null;
@@ -822,79 +769,34 @@
     return g;
   };
 
-  /*
-   * Recolour an already-drawn layer by filling through its own alpha.
-   * 'copy' replaces the destination outright, so no separate clear is needed.
-   */
-  GmlPlayer.prototype.tinted = function (source, color) {
-    var canvas = this.scratch('tintLayer');
-    if (!canvas) return source;
-    var g = canvas.getContext('2d');
-    g.setTransform(1, 0, 0, 1, 0, 0);
-    g.globalCompositeOperation = 'copy';
-    g.drawImage(source, 0, 0);
-    g.globalCompositeOperation = 'source-in';
-    g.fillStyle = color;
-    g.fillRect(0, 0, canvas.width, canvas.height);
-    return canvas;
-  };
-
-  /*
-   * Put the finished ink on the canvas, through whichever of the two
-   * whole-image effects are on.
-   *
-   * The split is resolved into its own layer before the glow is applied, so
-   * the blur is paid for once. Drawing each of the three channels through
-   * shadowBlur separately cost three full-canvas blurs a frame -- about 14ms
-   * whatever the tag, which is most of a frame's budget spent on compositing.
-   */
+  // Put the finished ink on the canvas, through the glow. Only reached with
+  // glow on; render() draws straight to the canvas otherwise.
   GmlPlayer.prototype.compose = function (source) {
     var ctx = this.ctx;
-    var self = this;
-    var layer = source;
-
-    if (this.effects.chromatic) {
-      var canvas = this.scratch('fxLayer');
-      if (canvas) {
-        var g = canvas.getContext('2d');
-        var off = this.opts.chromatic * this.dpr;
-        g.setTransform(1, 0, 0, 1, 0, 0);
-        g.globalCompositeOperation = 'copy';
-        g.clearRect(0, 0, canvas.width, canvas.height);
-        g.globalCompositeOperation = 'lighter';
-        [['#ff0040', -off], ['#00ff88', 0], ['#0080ff', off]].forEach(function (pass) {
-          g.drawImage(self.tinted(source, pass[0]), pass[1], 0);
-        });
-        layer = canvas;
-      }
-    }
 
     ctx.save();
     // Composite in device pixels: the layer is already at that scale.
     ctx.setTransform(1, 0, 0, 1, 0, 0);
 
-    if (this.effects.glow) {
-      // The halo is blurred at half resolution and scaled back up. A blur
-      // costs in proportion to the pixels it covers, and nobody can see the
-      // difference in something this soft -- at full size on a retina display
-      // it was comfortably the most expensive thing in the frame. The crisp
-      // layer then goes on top, so only the halo is ever approximate.
-      var halo = this.scratch('glowLayer', 0.5);
-      if (halo) {
-        var hg = halo.getContext('2d');
-        hg.setTransform(1, 0, 0, 1, 0, 0);
-        hg.globalCompositeOperation = 'copy';
-        hg.clearRect(0, 0, halo.width, halo.height);
-        hg.globalCompositeOperation = 'source-over';
-        hg.shadowColor = this.opts.color;
-        hg.shadowBlur = this.opts.glow * this.dpr * 0.5;
-        hg.drawImage(layer, 0, 0, halo.width, halo.height);
-        hg.shadowBlur = 0;
-        ctx.drawImage(halo, 0, 0, this.canvas.width, this.canvas.height);
-      }
+    // The halo is blurred at half resolution and scaled back up. A blur costs
+    // in proportion to the pixels it covers, and at full size on a retina
+    // display this was the most expensive thing in the frame. The crisp layer
+    // goes on top, so only the halo is approximate.
+    var halo = this.scratch('glowLayer', 0.5);
+    if (halo) {
+      var hg = halo.getContext('2d');
+      hg.setTransform(1, 0, 0, 1, 0, 0);
+      hg.globalCompositeOperation = 'copy';
+      hg.clearRect(0, 0, halo.width, halo.height);
+      hg.globalCompositeOperation = 'source-over';
+      hg.shadowColor = this.opts.color;
+      hg.shadowBlur = this.opts.glow * this.dpr * 0.5;
+      hg.drawImage(source, 0, 0, halo.width, halo.height);
+      hg.shadowBlur = 0;
+      ctx.drawImage(halo, 0, 0, this.canvas.width, this.canvas.height);
     }
 
-    ctx.drawImage(layer, 0, 0);
+    ctx.drawImage(source, 0, 0);
     ctx.restore();
   };
 
@@ -915,8 +817,8 @@
 
     var progress = this.progress(t);
 
-    // Where the tag is going, held faintly under where it has got to. Drawn
-    // straight to the canvas so the glow does not pick it up.
+    // Where the tag is going, faint under where it has got to. Drawn straight
+    // to the canvas so the glow does not pick it up.
     if (this.layers.ink && this.effects.ghost) {
       var whole = this.strokes.map(function (s) { return { count: s.points.length, partial: 0 }; });
       ctx.save();
@@ -928,7 +830,7 @@
     if (this.layers.drips) this.seedDrips(t);
 
     if (this.layers.ink || this.layers.drips) {
-      var buffered = (this.effects.glow || this.effects.chromatic) && this.layerContext();
+      var buffered = this.effects.glow && this.layerContext();
       var target = buffered || ctx;
 
       target.save();
@@ -989,8 +891,7 @@
       self.last = now;
       self.time += dt;
 
-      // Hold on the finished tag for a beat before starting over, so you get
-      // to look at it.
+      // Hold on the finished tag before starting over.
       if (self.time >= self.duration + self.opts.loopDelay / 1000) {
         if (self.opts.loop) self.seek(0);
         else { self.time = self.duration; self.pause(); self.render(); return; }
@@ -1014,8 +915,8 @@
 
   GmlPlayer.prototype.seek = function (t) {
     var next = clamp(t, 0, this.duration);
-    // Drips are seeded as playback passes each dwell, so scrubbing backwards
-    // has to throw away everything seeded after the new position.
+    // Drips seed as playback passes each dwell, so scrubbing back has to drop
+    // everything seeded after the new position.
     if (next < this.time) { this.drips = []; this.seeded = {}; }
     this.time = next;
     this.render();
@@ -1050,9 +951,8 @@
   };
 
   /*
-   * Change how the brush behaves and re-derive the stroke widths. Drips are
-   * dropped rather than kept, because where ink pools depends on the dwell
-   * threshold that may have just moved.
+   * Retune the brush and re-derive the widths. Drips are dropped, because
+   * where ink pools depends on the dwell threshold that may have just moved.
    */
   GmlPlayer.prototype.retune = function (changes) {
     Object.assign(this.opts, changes);

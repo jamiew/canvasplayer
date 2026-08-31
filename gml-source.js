@@ -1,11 +1,8 @@
 /*
- * Loading GML from #000000book, and turning it into what GmlPlayer wants.
+ * Loads GML from #000000book and flattens it into what GmlPlayer wants.
  *
- * Tries fetch() first and falls back to JSONP. #000000book sends no CORS
- * headers today, so cross-origin fetch fails and the JSONP path is what
- * actually runs -- but the moment the API starts sending them, the fetch path
- * takes over on its own and the callback shim stops being used. A real HTTP
- * error, a 404 for a tag that does not exist, is reported rather than retried.
+ * Tries fetch, falls back to JSONP. The API sends no CORS headers, so JSONP
+ * is the path that runs today. An HTTP status is reported, not retried.
  *
  * Public domain, Jamie Wilkinson & Free Art & Technology (F.A.T.) Lab.
  */
@@ -15,12 +12,14 @@
 
   var API = 'https://000000book.com/data/';
 
-  // Anything the XML-to-JSON conversion may hand back as a lone object rather
-  // than a one-element array.
+  // The XML-to-JSON conversion drops one-element arrays down to bare objects.
   function list(value) {
     if (value === null || value === undefined) return [];
     return Array.isArray(value) ? value : [value];
   }
+
+  // And the other way round. Tag 100 ships five <drawing> elements.
+  function first(value) { return Array.isArray(value) ? (value[0] || {}) : (value || {}); }
 
   function num(value) {
     var n = parseFloat(value);
@@ -30,40 +29,42 @@
   /*
    * Which way was up when the tag was captured.
    *
-   * GML records this in <environment><up>: an up vector along +x means the
-   * device was held sideways and the points were written out unrotated. That
-   * covers the archive from roughly tag 200 onwards.
+   * <environment><up> along +x means the device was sideways. Tags before
+   * about #170 have no <environment>, so the geometry has to answer it: both
+   * axes are normalized against the same edge, so y can only pass 1 on a
+   * sideways capture.
    *
-   * Before that the element is simply absent, which is what the old sketch
-   * here was working around when it matched on the client's name. So the name
-   * check survives, but only as the fallback it always should have been. It
-   * deliberately does not match plain "Graffiti Analysis 2.0", which is the
-   * desktop app and was already upright.
+   * Do not guess from the client's name. Graffiti Analysis 1.0 wrote the
+   * tag's name there, not the app's, so #161 is "katsu-4" and the old
+   * /Katsu/ match laid it on its side.
    */
-  var LANDSCAPE_CLIENTS = /DustTag|Dust Tag|Katsu|Fat Tag/i;
-
-  function isLandscape(environment, clientName) {
+  function isLandscape(environment, strokes) {
     var up = (environment && environment.up) || null;
     var x = up ? num(up.x) : null;
     var y = up ? num(up.y) : null;
 
     if (x !== null && y !== null && (x !== 0 || y !== 0)) return Math.abs(x) > Math.abs(y);
-    return LANDSCAPE_CLIENTS.test(clientName || '');
+
+    return (strokes || []).some(function (stroke) {
+      return stroke.points.some(function (p) { return p[1] > 1; });
+    });
   }
 
   /*
-   * Flatten the GML tree into the flat [x, y, time] triples the player reads.
-   * Timing is passed through untouched, gaps and all: the player repairs it
-   * and reports what it had to do, so a bad capture stays visible.
+   * Flatten the tree into the [x, y, time] triples the player reads. Timing
+   * passes through untouched: the player repairs it and says so.
    */
   function parse(gml, id) {
-    var tag = (gml && (gml.tag || gml.GML)) || {};
-    var header = tag.header || {};
-    var environment = tag.environment || {};
-    var client = header.client || {};
-    var bounds = environment.screenBounds || {};
+    var tag = first((gml && (gml.tag || gml.GML)) || {});
+    var header = first(tag.header);
+    var environment = first(tag.environment);
+    var client = first(header.client);
 
-    var strokes = list((tag.drawing || {}).stroke).map(function (stroke) {
+    var raw = list(tag.drawing).reduce(function (all, drawing) {
+      return all.concat(list(first(drawing).stroke));
+    }, []);
+
+    var strokes = raw.map(function (stroke) {
       var points = list(stroke && stroke.pt).map(function (pt) {
         var x = num(pt && pt.x);
         var y = num(pt && pt.y);
@@ -71,28 +72,18 @@
         return [x, y, num(pt.time) || 0];
       }).filter(Boolean);
 
-      return points.length ? {
-        color: stroke.color || null,
-        brush: num(stroke.brush || stroke.stroke_size),
-        drips: stroke.dripping === 'true' || stroke.dripping === true,
-        points: points
-      } : null;
+      return points.length ? { points: points } : null;
     }).filter(Boolean);
 
     return {
       id: id,
       app: client.name || null,
-      client: client.name || null,
-      screen: { x: num(bounds.x), y: num(bounds.y) },
-      rotate: isLandscape(environment, client.name),
+      rotate: isLandscape(environment, strokes),
       strokes: strokes
     };
   }
 
-  /*
-   * Fetch a tag by id, or the strings "latest" or "random", which the API
-   * also answers to.
-   */
+  // Fetch by id, or "latest" or "random", which the API also answers to.
   var pending = 0;
 
   function deliver(data, id, onReady, onError) {
@@ -114,8 +105,8 @@
         })
         .then(function (data) { deliver(data, id, onReady, onError); })
         .catch(function (err) {
-          // An HTTP status is the server answering; anything else is the
-          // request never getting there, which is where JSONP still helps.
+          // A status means the server answered. Anything else never arrived,
+          // which is where JSONP still helps.
           if (err && err.http) {
             if (onError) onError(err);
             return;
@@ -147,8 +138,8 @@
     script.onerror = function () {
       if (done) return;
       cleanup();
-      // A script tag reports one undifferentiated error, so this cannot tell
-      // a missing tag from a network failure. The fetch path can, and says so.
+      // A script tag reports one undifferentiated error, so a missing tag and
+      // a dead network look the same here. The fetch path can tell them apart.
       if (onError) onError(new Error('Could not load tag ' + id + ' -- it may not exist'));
     };
 

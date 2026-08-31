@@ -8,10 +8,9 @@
   v1: initial implementation
   v2: multiple strokes, looping, iPhone translation, better stage positioning
   v3: time-accurate playback
-  v4: dropped Processing.js for plain canvas, and fixed the maths underneath.
-      Drips, tapered strokes, drawing modes and a debug overlay. The old TODO
-      list -- drips, curves rather than straight segments, scaling and
-      centering the drawing, adjustable width and speed sensitivity -- is done.
+  v4: dropped Processing.js, fixed the maths. Drips, tapered strokes, drawing
+      modes, debug overlay
+  v5: one fixed frame, orientation read from the drawing, light and dark
 -->
 <html lang="en">
 <head>
@@ -23,58 +22,269 @@
   <meta property="og:description" content="canvasplayer (2009): Graffiti Markup Language (GML) playback in the browser on HTML5 canvas.">
   <meta property="og:type" content="website">
   <meta name="twitter:card" content="summary">
+  <script>
+    // Runs before the stylesheet, or the page flashes the wrong theme.
+    (function () {
+      var saved = null;
+      try { saved = localStorage.getItem('theme'); } catch (e) {}
+      document.documentElement.dataset.theme = saved ||
+        (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    }());
+  </script>
+
   <style media="screen">
-    :root { --line: #ddd; --dim: #777; }
+    :root {
+      color-scheme: light;
+      --paper: #fff;
+      --ink: #000;
+      --rule: #d9d9d9;
+      --rule-soft: #ececec;
+      --mute: #6b6b6b;
+
+      --sans: "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
+      --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+      /* One frame at one size for every tag, with the drawing fitted inside.
+         Not a viewport unit: sizing off the window changed the drawing, the
+         button rows and the page height as you resized. */
+      --stage: 560px;
+    }
+
+    /* Swapping paper and ink carries the page. Buttons, links, the timeline
+       thumb and every pressed state are built from the pair. */
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+      --paper: #000;
+      --ink: #fff;
+      --rule: #333;
+      --rule-soft: #222;
+      --mute: #9a9a9a;
+    }
+
     * { box-sizing: border-box; }
+
     body {
-      background: #fff; color: #222; margin: 0 auto; padding: 20px;
-      font-family: system-ui, -apple-system, "Helvetica Neue", sans-serif;
-      max-width: 1100px;
+      margin: 0 auto;
+      padding: 40px 24px 56px;
+      max-width: 940px;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: var(--sans);
+      -webkit-font-smoothing: antialiased;
     }
-    a { color: #9f7; color: #7a7a4a; }
-    h1 { letter-spacing: -1px; color: #000; font-size: 1.5rem; margin: 0 0 4px; }
-    h2 { font-weight: normal; }
 
-    .layout { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 24px; align-items: start; }
+    a { color: var(--ink); text-underline-offset: 3px; text-decoration-thickness: 1px; }
+    a:hover { text-decoration-color: var(--mute); }
+    :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 
-    #sidebar { font-size: 14px; text-align: right; }
-    #sidebar ul { list-style: none; line-height: 1.5em; padding: 0; margin: 0; }
-    #sidebar hr { border: 0; border-bottom: 1px dotted #ccc; }
-    #sidebar a.selected { text-decoration: none; color: #000; font-weight: 600; }
-    #sidebar a.selected:after { content: "*"; color: #e33; font-weight: bold; }
-    #meta { color: var(--dim); font-size: 12px; margin-bottom: 12px; word-wrap: break-word; }
+    /* --- theme switch ------------------------------------------------------ */
 
-    /* The player overrides the ratio per tag, from the drawing's own bounds.
-       The cap stops a tall capture turning into a screenful of black. */
-    .stage { position: relative; background: #000; border: 5px solid #222; aspect-ratio: 4 / 3; max-height: 70vh; }
+    .topbar { display: flex; justify-content: flex-end; align-items: center; gap: 9px; }
+
+    #theme { padding: 0; border: 0; background: none; cursor: pointer; }
+    #theme .track {
+      display: block; position: relative;
+      width: 34px; height: 18px;
+      border: 1px solid var(--mute); border-radius: 9px;
+    }
+    #theme:hover .track { border-color: var(--ink); }
+    #theme .knob {
+      position: absolute; top: 2px; left: 2px;
+      width: 12px; height: 12px; border-radius: 50%;
+      background: var(--ink);
+      transition: transform .22s cubic-bezier(.4, 0, .2, 1);
+    }
+    /* 34 wide, less 2 borders, 12 knob and 2 either side. */
+    #theme[aria-checked="true"] .knob { transform: translateX(16px); }
+
+    body, .stage, button, #theme .track, .timeline .rail, .timeline .fill {
+      transition: background-color .2s ease, border-color .2s ease, color .2s ease;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      body, .stage, button, #theme .track, #theme .knob { transition: none; }
+    }
+
+    /* --- masthead --------------------------------------------------------- */
+
+    .masthead { text-align: center; margin-bottom: 34px; }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(2.1rem, 7vw, 3.4rem);
+      font-weight: 700;
+      letter-spacing: -0.045em;
+      line-height: 1;
+    }
+    h1 .lt { font-weight: 400; color: var(--mute); }
+
+    .tagline {
+      margin: 14px auto 0;
+      max-width: 52ch;
+      font: 400 13px/1.6 var(--sans);
+      color: var(--mute);
+    }
+
+    /* --- layout ----------------------------------------------------------- */
+
+    .layout {
+      display: grid;
+      /* The deck column is exactly the stage, so the pair centres as a unit. */
+      grid-template-columns: 132px var(--stage);
+      gap: 28px;
+      align-items: start;
+      justify-content: center;
+    }
+
+    .eyebrow {
+      font: 500 10px var(--mono);
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--mute);
+    }
+
+    /* --- tag index -------------------------------------------------------- */
+
+    #index { text-align: right; padding-top: 2px; }
+    #index .eyebrow { margin-bottom: 10px; }
+    #index ul { list-style: none; margin: 0 0 14px; padding: 0; }
+    #index li + li { margin-top: 2px; }
+    #index a { display: block; font-size: 13.5px; line-height: 1.5; text-decoration: none; }
+    #index a:hover { text-decoration: underline; }
+    #index a[aria-current] { font-weight: 700; }
+    /* In the gutter, so selecting a tag never re-flows the list. */
+    #index a[aria-current]:after {
+      content: "\2190"; position: absolute; margin-left: 8px; color: var(--mute); font-weight: 400;
+    }
+    #index .group { border-top: 1px solid var(--rule-soft); padding-top: 12px; margin-top: 12px; }
+    #index footer { margin-top: 18px; font-size: 12px; color: var(--mute); line-height: 1.5; }
+
+    /* --- stage ------------------------------------------------------------ */
+
+    .deck { width: 100%; min-width: 0; }
+
+    .stage {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      /* The canvas is black in either theme, so only the border changes. */
+      background: #000;
+      border: 1px solid var(--ink);
+    }
     .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-    .stage[data-error]:after {
-      content: attr(data-error); position: absolute; inset: 0; display: grid; place-items: center;
-      color: #e66; font: 13px ui-monospace, Menlo, monospace;
+
+    .stage .status {
+      position: absolute; inset: 0; z-index: 2;
+      display: grid; place-items: center;
+      font: 500 11px var(--mono); letter-spacing: 0.16em; text-transform: uppercase;
+      color: #8a8a8a; text-align: center; padding: 0 24px;
+    }
+    .stage .status[hidden] { display: none; }
+
+    /* --- transport -------------------------------------------------------- */
+
+    .transport { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
+
+    .transport button { min-width: 62px; }
+
+    .clock {
+      font: 500 11px var(--mono);
+      font-variant-numeric: tabular-nums;
+      color: var(--mute);
+      white-space: nowrap;
     }
 
-    #loading { position: absolute; z-index: 2; left: 8px; top: 8px; }
-    #tag_id { color: #999; text-transform: uppercase; font-size: 9pt; }
+    /* Marks where each stroke begins. The range input stays the real control
+       and keeps its keyboard behaviour; the visuals sit underneath. */
+    .timeline { position: relative; flex: 1 1 auto; min-width: 0; height: 20px; }
+    .timeline .rail,
+    .timeline .fill { position: absolute; top: 9px; height: 2px; }
+    .timeline .rail { left: 0; right: 0; background: var(--rule); }
+    .timeline .fill { left: 0; width: 0; background: var(--ink); }
+    .timeline .ticks { position: absolute; inset: 0; pointer-events: none; }
+    .timeline .ticks i { position: absolute; top: 4px; width: 1px; height: 12px; background: var(--ink); opacity: 0.45; }
 
-    .controls { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
-    .controls input[type=range] { flex: 1 1 200px; min-width: 0; }
-    .clock { font: 12px ui-monospace, Menlo, monospace; color: var(--dim); }
+    .timeline input {
+      position: absolute; inset: 0; width: 100%; height: 100%; margin: 0;
+      -webkit-appearance: none; appearance: none; background: none; cursor: pointer;
+    }
+    .timeline input::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none;
+      width: 13px; height: 13px; border-radius: 50%;
+      background: var(--ink); border: 2px solid var(--paper); cursor: grab;
+    }
+    .timeline input::-moz-range-thumb {
+      width: 13px; height: 13px; border-radius: 50%;
+      background: var(--ink); border: 2px solid var(--paper); cursor: grab;
+    }
+    .timeline input::-moz-range-track { background: none; }
 
-    .switches { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
-    .switches .row { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; }
-    .switches .label { font: 11px ui-monospace, Menlo, monospace; color: var(--dim); width: 56px; }
-    button { font: 11px ui-monospace, Menlo, monospace; padding: 4px 7px; cursor: pointer;
-             border: 1px solid var(--line); background: #fff; color: #444; border-radius: 3px; }
-    button:hover { border-color: #999; color: #000; }
-    button[aria-pressed=true] { background: #222; border-color: #222; color: #fff; }
+    /* --- readout ---------------------------------------------------------- */
 
-    footer { margin-top: 22px; font-size: 13px; color: var(--dim); }
+    #readout {
+      margin-top: 12px;
+      padding-top: 11px;
+      border-top: 1px solid var(--rule-soft);
+      font: 400 11.5px/1.7 var(--mono);
+      color: var(--mute);
+      /* Two lines reserved, padding included. A long client name wraps to
+         two, and reserving less jumped the switches below. */
+      min-height: calc(11px + 2 * 1.7 * 11.5px);
+    }
+    #readout b { color: var(--ink); font-weight: 500; }
+    #readout .sep { color: var(--rule); margin: 0 7px; }
 
-    @media (max-width: 700px) {
-      .layout { grid-template-columns: minmax(0, 1fr); }
-      #sidebar { text-align: left; }
-      #sidebar ul { display: flex; flex-wrap: wrap; gap: 10px; }
-      #sidebar hr { display: none; }
+    /* --- switches --------------------------------------------------------- */
+
+    .switches { margin-top: 14px; display: grid; gap: 8px; }
+    .switch { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 12px; align-items: start; }
+    .switch .eyebrow { padding-top: 6px; }
+    .switch .set { display: flex; flex-wrap: wrap; gap: 6px; }
+
+    button {
+      font: 500 11px var(--mono);
+      padding: 5px 9px;
+      background: var(--paper);
+      color: var(--mute);
+      border: 1px solid var(--rule);
+      cursor: pointer;
+    }
+    button:hover:not(:disabled) { border-color: var(--ink); color: var(--ink); }
+    /* :not(:disabled) is for specificity, not state. Without it :hover wins
+       and a pressed button under the cursor goes black on black. */
+    .set button[aria-pressed="true"]:not(:disabled),
+    .set button[aria-checked="true"]:not(:disabled) { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+    button:disabled { opacity: 0.4; cursor: default; }
+
+    /* Mode is one-of-many, so it joins into one control. Effects and debug
+       are independent, so they stay separate chips. */
+    .set.segmented { gap: 0; }
+    .set.segmented button + button { margin-left: -1px; }
+    .set.segmented button:hover:not(:disabled) { position: relative; z-index: 1; }
+
+    /* --- footer ----------------------------------------------------------- */
+
+    footer.page {
+      margin-top: 40px; padding-top: 18px;
+      border-top: 1px solid var(--rule-soft);
+      font-size: 12.5px; line-height: 1.7; color: var(--mute);
+      text-align: center;
+    }
+    footer.page a { color: var(--mute); }
+    footer.page a:hover { color: var(--ink); }
+    footer.page .sep { color: var(--rule); margin: 0 6px; }
+
+    /* The one place the frame shrinks: a screen too narrow to hold it. */
+    @media (max-width: 720px) {
+      body { padding: 28px 18px 40px; }
+      .layout { grid-template-columns: minmax(0, var(--stage)); gap: 22px; justify-items: center; }
+      #index { text-align: center; width: 100%; }
+      #index ul { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 16px; margin-bottom: 0; }
+      #index li + li { margin-top: 0; }
+      #index .group { border-top: 0; padding-top: 0; margin-top: 8px; }
+      #index a[aria-current]:after { display: none; }
+      #index a[aria-current] { text-decoration: underline; }
+      .switch { grid-template-columns: 52px minmax(0, 1fr); gap: 10px; }
     }
   </style>
 
@@ -88,61 +298,84 @@
 </head>
 <body>
 
-  <h1>canvasplayer: GML playback on &lt;canvas&gt;</h1>
-  <h2 style="font-size: 15px; color: #555; margin: 0 0 20px">
-    Graffiti Markup Language, played back from the timestamps the capture app recorded.
-  </h2>
+  <div class="topbar">
+    <span class="eyebrow">Theme</span>
+    <button id="theme" type="button" role="switch" aria-checked="false" aria-label="Dark mode">
+      <span class="track"><span class="knob"></span></span>
+    </button>
+  </div>
+
+  <header class="masthead">
+    <h1>canvasplayer</h1>
+    <p class="tagline">
+      Graffiti Markup Language, played back on <span class="lt">&lt;canvas&gt;</span> from the
+      timestamps the capture app recorded.
+    </p>
+  </header>
 
   <div class="layout">
-    <div id="sidebar">
-      <div id="meta"></div>
-      <h3 style="font-size: 13px; margin: 0 0 6px">Load tag:</h3>
+    <nav id="index">
+      <div class="eyebrow">Tags</div>
       <ul>
-        <li><a href="?latest" id="link-latest">Latest</a></li>
-        <li><a href="?random" id="link-random">Random</a></li>
-        <li><hr />
-            <a href="?id=161" id="link-161">Katsu</a></li>
+        <li><a href="?id=161" id="link-161">Katsu</a></li>
         <li><a href="?id=158" id="link-158">Jesus Saves</a></li>
         <li><a href="?id=1399" id="link-1399">Seen</a></li>
         <li><a href="?id=818" id="link-818">Hell</a></li>
-        <li><a href="?id=148" id="link-148">hello world</a></li>
-        <li><a href="?id=147" id="link-147">DustTag (2009)</a></li>
+        <li><a href="?id=147" id="link-147">hello world</a></li>
         <li><a href="?id=842" id="link-842">404</a></li>
-        <li><hr />
-            <small>more on <a href="https://000000book.com">000000book.com</a></small></li>
       </ul>
-    </div>
+      <ul class="group">
+        <li><a href="?latest" id="link-latest">Latest</a></li>
+        <li><a href="?random" id="link-random">Random</a></li>
+      </ul>
+      <footer>more on<br><a href="https://000000book.com">000000book.com</a></footer>
+    </nav>
 
-    <div>
-      <div class="stage" id="stage">
-        <div id="loading">
-          <img src="loading1.gif" alt="Loading" id="loading_animation" />
-          <div id="tag_id">...</div>
-        </div>
+    <div class="deck">
+      <div class="stage">
         <canvas id="canvas"></canvas>
+        <div class="status" id="status">Loading</div>
       </div>
 
-      <div class="controls">
-        <button id="play" type="button" aria-label="Pause">Pause</button>
-        <input id="scrub" type="range" min="0" max="1000" value="0" aria-label="Playback position">
+      <div class="transport">
+        <button id="play" type="button" disabled>Play</button>
+        <div class="timeline">
+          <div class="rail"></div>
+          <div class="fill" id="fill"></div>
+          <div class="ticks" id="ticks"></div>
+          <input id="scrub" type="range" min="0" max="1000" value="0" step="1"
+                 aria-label="Playback position" disabled>
+        </div>
         <span class="clock" id="clock">00.00 / 00.00</span>
-        <button id="rate" type="button">1&times;</button>
+        <button id="rate" type="button" disabled>1&times;</button>
       </div>
+
+      <div id="readout">&mdash;</div>
 
       <div class="switches">
-        <div class="row"><span class="label">Mode</span><span id="modes"></span></div>
-        <div class="row"><span class="label">Effects</span><span id="effects"></span></div>
-        <div class="row"><span class="label">Debug</span><span id="layers"></span></div>
+        <div class="switch">
+          <span class="eyebrow" id="lbl-mode">Mode</span>
+          <span class="set segmented" id="modes" role="radiogroup" aria-labelledby="lbl-mode"></span>
+        </div>
+        <div class="switch">
+          <span class="eyebrow" id="lbl-fx">Ink</span>
+          <span class="set" id="effects" aria-labelledby="lbl-fx"></span>
+        </div>
+        <div class="switch">
+          <span class="eyebrow" id="lbl-dbg">Data</span>
+          <span class="set" id="layers" aria-labelledby="lbl-dbg"></span>
+        </div>
       </div>
     </div>
   </div>
 
-  <footer>
-    Code at <a href="https://github.com/jamiew/canvasplayer">github.com/jamiew/canvasplayer</a>.
-    <strong>GML webring:</strong>
-    <a href="http://fffff.at/gml-week-graffiti-markup-language/">intro</a> /
-    <a href="http://fffff.at/tag/gmlweek">recent projects</a> /
-    <a href="http://fffff.at/gml">GML spec</a> /
+  <footer class="page">
+    <a href="https://github.com/jamiew/canvasplayer">github.com/jamiew/canvasplayer</a>
+    <span class="sep">/</span>
+    <a href="http://fffff.at/gml-week-graffiti-markup-language/">intro</a>
+    <span class="sep">/</span>
+    <a href="http://fffff.at/gml">GML spec</a>
+    <span class="sep">/</span>
     <a href="https://000000book.com">data (#000000book)</a>
   </footer>
 
@@ -151,87 +384,138 @@
   <script>
   (function () {
     var RATES = [0.25, 0.5, 1, 2, 4];
-    var stage = document.getElementById('stage');
+
     var canvas = document.getElementById('canvas');
+    var status = document.getElementById('status');
     var scrub = document.getElementById('scrub');
+    var fill = document.getElementById('fill');
+    var ticks = document.getElementById('ticks');
     var clock = document.getElementById('clock');
+    var readout = document.getElementById('readout');
     var play = document.getElementById('play');
     var rate = document.getElementById('rate');
+    var modes = document.getElementById('modes');
+    var effects = document.getElementById('effects');
+    var layers = document.getElementById('layers');
+
     var player = null;
     var scrubbing = false;
 
-    // ?id=154, ?latest or ?random -- as it has always worked.
+    var root = document.documentElement;
+    var theme = document.getElementById('theme');
+
+    function setTheme(dark) {
+      root.dataset.theme = dark ? 'dark' : 'light';
+      theme.setAttribute('aria-checked', String(dark));
+    }
+
+    setTheme(root.dataset.theme === 'dark');
+
+    theme.addEventListener('click', function () {
+      var dark = theme.getAttribute('aria-checked') !== 'true';
+      setTheme(dark);
+      try { localStorage.setItem('theme', dark ? 'dark' : 'light'); } catch (e) {}
+    });
+
+    // Follow the system until the reader picks a side.
+    matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function (e) {
+      var saved = null;
+      try { saved = localStorage.getItem('theme'); } catch (err) {}
+      if (!saved) setTheme(e.matches);
+    });
+
+    // ?id=154, ?latest or ?random, as it has always worked.
     var tagId = 161; // default: KATSU
-    var matches = document.location.href.match(/id=(\d+)/);
+    var matches = document.location.search.match(/id=(\d+)/);
     if (matches) tagId = matches[1];
     else if (/latest/.test(document.location.search)) tagId = 'latest';
     else if (/random/.test(document.location.search)) tagId = 'random';
 
-    document.getElementById('tag_id').textContent = tagId;
-    var link = document.getElementById('link-' + tagId);
-    if (link) link.className = 'selected';
+    var current = document.getElementById('link-' + tagId);
+    if (current) current.setAttribute('aria-current', 'page');
+    status.textContent = 'Loading #' + tagId;
 
     function pad(n) { return String(n).padStart(2, '0'); }
     function secs(t) { return pad(Math.floor(t)) + '.' + pad(Math.round((t % 1) * 100)); }
 
-    function toggles(host, names, labels, read, write) {
+    /*
+     * Built and laid out before the tag arrives, enabled once it has. Building
+     * on load made three rows of buttons appear at once, shifting the page.
+     */
+    function build(host, names, opts) {
+      var flag = opts.exclusive ? 'aria-checked' : 'aria-pressed';
       names.forEach(function (name) {
         var button = document.createElement('button');
         button.type = 'button';
-        button.textContent = labels[name] || name;
-        button.setAttribute('aria-pressed', String(!!read(name)));
+        button.textContent = name;
+        button.disabled = true;
+        button.setAttribute(flag, 'false');
+        if (opts.exclusive) button.setAttribute('role', 'radio');
         button.addEventListener('click', function () {
-          var next = button.getAttribute('aria-pressed') !== 'true';
-          write(name, next, button);
-          button.setAttribute('aria-pressed', String(next));
+          if (opts.exclusive) {
+            opts.set(name);
+            host.querySelectorAll('button').forEach(function (other) {
+              other.setAttribute(flag, String(other === button));
+            });
+            return;
+          }
+          var on = button.getAttribute(flag) !== 'true';
+          opts.set(name, on);
+          button.setAttribute(flag, String(on));
         });
         host.appendChild(button);
       });
     }
 
-    function build(data) {
-      document.getElementById('loading').style.display = 'none';
+    build(modes, GmlPlayer.MODES, {
+      exclusive: true,
+      set: function (name) { player.setMode(name); }
+    });
+    build(effects, GmlPlayer.EFFECTS, { set: function (name, on) { player.setEffect(name, on); } });
+    build(layers, GmlPlayer.LAYERS, { set: function (name, on) { player.setLayer(name, on); } });
 
+    function sync(host, read) {
+      host.querySelectorAll('button').forEach(function (button) {
+        var flag = button.hasAttribute('aria-checked') ? 'aria-checked' : 'aria-pressed';
+        button.setAttribute(flag, String(!!read(button.textContent)));
+        button.disabled = false;
+      });
+    }
+
+    function start(data) {
+      status.hidden = true;
       player = new GmlPlayer(canvas, data);
 
-      document.getElementById('meta').innerHTML =
-        '<strong>#' + (data.id || tagId) + '</strong><br>' +
-        (data.app ? data.app + '<br>' : '') +
-        player.strokes.length + (player.strokes.length === 1 ? ' stroke, ' : ' strokes, ') +
-        player.pointCount + ' pts<br>' +
-        secs(player.duration) + 's' + (data.rotate ? '<br>rotated 90&deg;' : '');
+      readout.innerHTML =
+        '<b>#' + (data.id || tagId) + '</b>' +
+        (data.app ? '<span class="sep">/</span>' + data.app : '') +
+        '<span class="sep">/</span>' + player.strokes.length +
+        (player.strokes.length === 1 ? ' stroke' : ' strokes') +
+        '<span class="sep">/</span>' + player.pointCount + ' pts' +
+        '<span class="sep">/</span>' + secs(player.duration) + 's' +
+        (data.rotate ? '<span class="sep">/</span>captured sideways' : '');
 
-      var modes = document.getElementById('modes');
-      GmlPlayer.MODES.forEach(function (mode) {
-        var button = document.createElement('button');
-        button.type = 'button';
-        button.textContent = mode;
-        button.setAttribute('aria-pressed', String(player.mode === mode));
-        button.addEventListener('click', function () {
-          player.setMode(mode);
-          Array.prototype.forEach.call(modes.children, function (other) {
-            other.setAttribute('aria-pressed', String(other === button));
-          });
-        });
-        modes.appendChild(button);
+      // A tick per stroke, so the timeline shows the shape of the tag.
+      ticks.innerHTML = '';
+      player.strokes.forEach(function (stroke, i) {
+        if (!i) return;
+        var mark = document.createElement('i');
+        mark.style.left = ((stroke.points[0][2] / player.duration) * 100).toFixed(2) + '%';
+        ticks.appendChild(mark);
       });
 
-      toggles(document.getElementById('effects'), GmlPlayer.EFFECTS, {},
-        function (name) { return player.effects[name]; },
-        function (name, on) { player.setEffect(name, on); });
-
-      toggles(document.getElementById('layers'), GmlPlayer.LAYERS, {},
-        function (name) { return player.layers[name]; },
-        function (name, on) { player.setLayer(name, on); });
+      sync(modes, function (name) { return player.mode === name; });
+      sync(effects, function (name) { return player.effects[name]; });
+      sync(layers, function (name) { return player.layers[name]; });
+      play.disabled = rate.disabled = scrub.disabled = false;
 
       player.on('frame', function (s) {
-        if (!scrubbing) scrub.value = Math.round((s.time / s.duration) * 1000);
+        var at = Math.min(s.time, s.duration) / s.duration;
+        if (!scrubbing) scrub.value = Math.round(at * 1000);
+        fill.style.width = (at * 100).toFixed(2) + '%';
         clock.textContent = secs(Math.min(s.time, s.duration)) + ' / ' + secs(s.duration);
       });
-      player.on('state', function (s) {
-        play.textContent = s.playing ? 'Pause' : 'Play';
-        play.setAttribute('aria-label', s.playing ? 'Pause' : 'Play');
-      });
+      player.on('state', function (s) { play.textContent = s.playing ? 'Pause' : 'Play'; });
 
       play.addEventListener('click', function () { player.toggle(); });
       scrub.addEventListener('input', function () {
@@ -242,23 +526,20 @@
       rate.addEventListener('click', function () {
         var next = RATES[(RATES.indexOf(player.opts.speed) + 1) % RATES.length];
         player.setSpeed(next);
-        rate.innerHTML = (next === 1 ? '1' : next) + '&times;';
+        rate.innerHTML = next + '&times;';
       });
 
       if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) player.seek(player.duration);
       else player.play();
     }
 
+    // Nothing to undo on failure. The controls are still disabled from
+    // build(), and the frame keeps its status.
     GmlSource.load(tagId, function (data) {
-      if (!data.strokes.length) {
-        document.getElementById('loading').style.display = 'none';
-        stage.setAttribute('data-error', 'That tag has no stroke data');
-        return;
-      }
-      build(data);
+      if (data.strokes.length) start(data);
+      else status.textContent = '#' + tagId + ' has no stroke data';
     }, function (err) {
-      document.getElementById('loading').style.display = 'none';
-      stage.setAttribute('data-error', err.message);
+      status.textContent = err.message;
     });
   }());
   </script>
