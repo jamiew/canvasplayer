@@ -17,7 +17,7 @@
   'use strict';
 
   // Diagnostic overlays, each independently switchable.
-  var LAYERS = ['ink', 'drips', 'ultradrips', 'vectors', 'points', 'bounds', 'graph'];
+  var LAYERS = ['ink', 'drips', 'vectors', 'points', 'bounds', 'graph'];
 
   // How the ink itself is drawn. One at a time.
   var MODES = ['marker', 'smooth', 'chisel', 'hairline', 'outline', 'dots', 'spray', 'skeleton'];
@@ -39,11 +39,15 @@
     // ranking a stroke's own samples slowest-first, not by a fixed speed: a
     // fast tag never dropped under an absolute threshold and so never dripped
     // at all, while a slow one dripped from everywhere.
-    dripEvery: 55,
-    dripRuns: 5,
+    dripEvery: 40,
+    dripRuns: 7,
     // Samples between runs, so a slow passage makes one rather than a row.
     dripGap: 7,
     dripLength: 1,
+    // How much of a run's size comes from how hard the pen was bearing down,
+    // and how much is left to vary run to run.
+    dripPressure: 1.5,
+    dripVary: 0.5,
     // How far the run narrows from where it leaves the pool to the head, and
     // how much more it thins as it stretches. A run that tapers to nothing
     // leaves its head looking like a pin, so the neck keeps some width.
@@ -53,12 +57,6 @@
     // dropped at the tip.
     dripHead: 1.45,
     dripDrift: 0.02,
-    // What ultradrips multiplies: frequency, cap, spacing, length and width.
-    ultraEvery: 0.18,
-    ultraRuns: 22,
-    ultraGap: 0.3,
-    ultraLength: 2.4,
-    ultraWidth: 1.5,
 
     hairline: 1.5,
     dotScale: 1,
@@ -70,9 +68,6 @@
     ghostAlpha: 0.14,
     // Fast strokes lay down less ink, so alpha follows speed as well as width.
     pressureFloor: 0.3,
-    // Ink soaking into the surface: a wider, fainter pass under the stroke.
-    bleedSpread: 1.5,
-    bleedAlpha: 0.16,
 
     // A flat nib held at a fixed angle. Width comes from direction, not speed.
     nib: 0.05,
@@ -99,6 +94,10 @@
   var MAX_PAUSE_FILL = 0.4;
 
   var TAU = Math.PI * 2;
+
+  // Ink soaking outwards, as widening passes under the stroke, so the edge
+  // falls off instead of stopping dead. [width multiplier, alpha].
+  var BLEED = [[3.2, 0.13], [2.2, 0.18], [1.5, 0.26]];
 
   function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
   function lerp(a, b, t) { return a + (b - a) * t; }
@@ -239,9 +238,9 @@
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.opts = Object.assign({}, DEFAULTS, options || {});
-    this.layers = { ink: true, drips: true, ultradrips: false, vectors: false, points: true, bounds: false, graph: false };
+    this.layers = { ink: true, drips: true, vectors: false, points: false, bounds: false, graph: false };
     this.effects = { ghost: true, pressure: false, bleed: false, jitter: false, fade: false };
-    this.mode = 'chisel';
+    this.mode = 'smooth';
     // Width multiplier, raised for the bleed pass under the stroke.
     this.spread = 1;
     this.playing = false;
@@ -298,7 +297,7 @@
     this.time = 0;
     this.drips = [];
     this.seeded = {};
-    this.planned = null;
+    this.planned = false;
   };
 
   GmlPlayer.prototype.resize = function () {
@@ -487,7 +486,7 @@
    * marker handstyle gets its shape from, and it ignores speed entirely.
    */
   GmlPlayer.prototype.chisel = function (ctx, path) {
-    var half = this.opts.nib * this.unit / 2;
+    var half = this.opts.nib * this.unit * this.spread / 2;
     var nx = Math.cos(this.opts.nibAngle) * half;
     var ny = Math.sin(this.opts.nibAngle) * half;
     var i;
@@ -528,8 +527,7 @@
 
   /* Centreline plus width ticks: the ribbon drawn as a technical diagram. */
   GmlPlayer.prototype.skeleton = function (ctx, path) {
-    ctx.lineWidth = 1;
-    this.polyline(ctx, path, 1);
+    this.polyline(ctx, path, this.spread);
     for (var i = 0; i < path.length; i += 2) {
       var prev = path[Math.max(i - 1, 0)];
       var next = path[Math.min(i + 1, path.length - 1)];
@@ -556,7 +554,7 @@
         this.chisel(ctx, path);
         break;
       case 'hairline':
-        this.polyline(ctx, path, this.opts.hairline);
+        this.polyline(ctx, path, this.opts.hairline * this.spread);
         break;
       case 'outline':
         ctx.lineWidth = 1;
@@ -594,11 +592,13 @@
       ctx.fillStyle = self.opts.color;
       ctx.strokeStyle = self.opts.color;
 
-      // Ink soaking outwards: a wider, fainter pass under the stroke itself.
+      // Ink soaking outwards, under the stroke itself.
       if (self.effects.bleed) {
-        ctx.globalAlpha = base * self.opts.bleedAlpha;
-        self.spread = self.opts.bleedSpread;
-        self.drawStroke(ctx, stroke, si, 0, p.count, p.partial);
+        BLEED.forEach(function (pass) {
+          ctx.globalAlpha = base * pass[1];
+          self.spread = pass[0];
+          self.drawStroke(ctx, stroke, si, 0, p.count, p.partial);
+        });
         self.spread = 1;
         ctx.globalAlpha = base;
       }
@@ -642,12 +642,12 @@
    * is what makes runs land consistently: a threshold on raw speed gave a fast
    * tag none at all and a slow one a run from every sample.
    */
-  GmlPlayer.prototype.planDrips = function (ultra) {
+  GmlPlayer.prototype.planDrips = function () {
     var opts = this.opts;
     var heavy = (opts.maxWidth + opts.minWidth) / 2;
-    var gap = Math.max(1, Math.round(opts.dripGap * (ultra ? opts.ultraGap : 1)));
-    var every = opts.dripEvery * (ultra ? opts.ultraEvery : 1);
-    var cap = ultra ? opts.ultraRuns : opts.dripRuns;
+    var gap = Math.max(1, Math.round(opts.dripGap));
+    var every = opts.dripEvery;
+    var cap = opts.dripRuns;
 
     this.strokes.forEach(function (stroke) {
       var pts = stroke.points;
@@ -675,16 +675,14 @@
       stroke.dripAt = chosen.sort(function (a, b) { return a - b; });
     });
 
-    this.planned = ultra;
+    this.planned = true;
   };
 
   GmlPlayer.prototype.seedDrips = function (t) {
     var self = this;
-    var ultra = !!this.layers.ultradrips;
-    var grow = ultra ? this.opts.ultraLength : 1;
-    var fatten = ultra ? this.opts.ultraWidth : 1;
+    var opts = this.opts;
 
-    if (this.planned !== ultra) this.planDrips(ultra);
+    if (!this.planned) this.planDrips();
 
     this.strokes.forEach(function (stroke, si) {
       var pts = stroke.points;
@@ -695,18 +693,30 @@
         if (self.seeded[key]) return;
         self.seeded[key] = true;
 
-        // Slower than the rest of this stroke means more ink gathered, so a
-        // longer run.
-        var pooled = 1 - clamp(stroke.speed[i] / self.peakSpeed, 0, 1);
+        /*
+         * How hard the pen was bearing down, as far as the capture can say:
+         * the slower it was moving, the more ink it left. Raised to a power so
+         * the genuinely slow points stand well clear of the merely unhurried.
+         */
+        var slow = 1 - clamp(stroke.speed[i] / self.peakSpeed, 0, 1);
+        var pressure = Math.pow(slow, opts.dripPressure);
+
+        // Two independent draws, so a fat run is not automatically a long one.
+        // Stable, so the same tag drips the same way every time.
+        var varyLen = 1 + (noise(si * 17 + i, 5) - 0.5) * 2 * opts.dripVary;
+        var varyWide = 1 + (noise(si * 17 + i, 11) - 0.5) * 2 * opts.dripVary;
         var dwell = pts[i][2] - pts[i - 1][2];
+
         self.drips.push({
+          si: si,
+          i: i,
+          speed: stroke.speed[i] || 0,
           x: pts[i][0],
           y: pts[i][1],
-          width: stroke.width[i] * 0.5 * fatten,
-          length: clamp(0.015 + dwell * 1.2 + pooled * 0.075, 0.015, 0.24) * grow,
+          width: stroke.width[i] * (0.3 + pressure * 0.5) * varyWide,
+          length: clamp((0.012 + dwell * 1.2 + pressure * 0.11) * varyLen, 0.01, 0.3),
           born: pts[i][2],
-          // Runs wander rather than falling dead straight. Stable per point,
-          // so the same tag drips the same way every time.
+          // Runs wander rather than falling dead straight.
           drift: (noise(si * 31 + i, 3) - 0.5) * 2,
           // Staggered off the point index, so neighbours do not fall in
           // lockstep.
@@ -730,6 +740,11 @@
   GmlPlayer.prototype.drawDrips = function (ctx, t) {
     var self = this;
     var opts = this.opts;
+    var fx = this.effects;
+    var base = ctx.globalAlpha;
+    // Runs are ink, so every effect that acts on ink has to reach them too.
+    var jitter = fx.jitter ? opts.jitter * this.unit * 0.012 : 0;
+
     ctx.fillStyle = opts.color;
 
     this.drips.forEach(function (d) {
@@ -740,36 +755,53 @@
       var len = d.length * opts.dripLength * p;
       if (len <= 0) return;
 
-      var x = self.px(d.x);
-      var y0 = self.py(d.y);
-      var y1 = self.py(d.y + len);
+      var alpha = 1;
+      if (fx.fade) alpha *= clamp(1 - age / opts.fadeWindow, 0.04, 1);
+      if (fx.pressure) {
+        alpha *= lerp(1, opts.pressureFloor, clamp(d.speed / self.peakSpeed, 0, 1));
+      }
+
+      // The same offset the stroke got, so a run stays attached to it.
+      var jx = jitter ? (noise(d.si * 91 + d.i, 7) - 0.5) * jitter : 0;
+      var jy = jitter ? (noise(d.si * 91 + d.i, 13) - 0.5) * jitter : 0;
+
+      var x = self.px(d.x) + jx;
+      var y0 = self.py(d.y) + jy;
+      var y1 = self.py(d.y + len) + jy;
       var drift = d.drift * opts.dripDrift * self.unit;
       // Stretching the same ink further leaves less of it across the neck.
       var half = (d.width * self.unit / 2) * (1 - opts.dripStretch * p);
 
-      var at = function (k) {
-        var f = k / DRIP_STEPS;
-        return {
-          x: x + drift * f * f,
-          y: lerp(y0, y1, f),
-          half: half * (1 - opts.dripTaper * f)
+      var run = function (spread, at) {
+        ctx.globalAlpha = base * alpha * at;
+        var wide = half * spread;
+        var point = function (k) {
+          var f = k / DRIP_STEPS;
+          return {
+            x: x + drift * f * f,
+            y: lerp(y0, y1, f),
+            half: wide * (1 - opts.dripTaper * f)
+          };
         };
+        var head = point(DRIP_STEPS);
+        var k;
+
+        ctx.beginPath();
+        ctx.moveTo(x - wide, y0);
+        for (k = 1; k <= DRIP_STEPS; k++) { var l = point(k); ctx.lineTo(l.x - l.half, l.y); }
+        // The head closes the shape, so it cannot detach from the neck.
+        ctx.arc(head.x, head.y, head.half * opts.dripHead, Math.PI, 0, true);
+        for (k = DRIP_STEPS; k >= 1; k--) { var r = point(k); ctx.lineTo(r.x + r.half, r.y); }
+        ctx.lineTo(x + wide, y0);
+        ctx.closePath();
+        ctx.fill();
       };
 
-      var head = at(DRIP_STEPS);
-      var r = head.half * opts.dripHead;
-      var k;
-
-      ctx.beginPath();
-      ctx.moveTo(x - half, y0);
-      for (k = 1; k <= DRIP_STEPS; k++) { var l = at(k); ctx.lineTo(l.x - l.half, l.y); }
-      // The head closes the shape, so it cannot detach from the neck.
-      ctx.arc(head.x, head.y, r, Math.PI, 0, true);
-      for (k = DRIP_STEPS; k >= 1; k--) { var rr = at(k); ctx.lineTo(rr.x + rr.half, rr.y); }
-      ctx.lineTo(x + half, y0);
-      ctx.closePath();
-      ctx.fill();
+      if (fx.bleed) BLEED.forEach(function (pass) { run(pass[0], pass[1]); });
+      run(1, 1);
     });
+
+    ctx.globalAlpha = base;
   };
 
   /* --- debug layers ------------------------------------------------------ */
@@ -938,22 +970,27 @@
 
     var progress = this.progress(t);
 
-    // Where the tag is going, faint under where it has got to.
+    // Where the tag is going, faint under where it has got to. Drawn at the
+    // end of the timeline, so fade would age all but the last second of it
+    // away and leave the preview in pieces. It is a preview, not ink: it does
+    // not age.
     if (this.layers.ink && this.effects.ghost) {
       var whole = this.strokes.map(function (s) { return { count: s.points.length, partial: 0 }; });
+      var aged = this.effects.fade;
       ctx.save();
       ctx.globalAlpha = this.opts.ghostAlpha;
+      this.effects.fade = false;
       this.drawInk(ctx, this.duration, whole);
+      this.effects.fade = aged;
       ctx.restore();
     }
 
-    if (this.layers.drips || this.layers.ultradrips) this.seedDrips(t);
+    if (this.layers.drips) this.seedDrips(t);
 
-    var running = this.layers.drips || this.layers.ultradrips;
-    if (this.layers.ink || running) {
+    if (this.layers.ink || this.layers.drips) {
       ctx.save();
       if (this.layers.ink) this.drawInk(ctx, t, progress);
-      if (running) this.drawDrips(ctx, t);
+      if (this.layers.drips) this.drawDrips(ctx, t);
       ctx.restore();
     }
 
@@ -1042,9 +1079,6 @@
   GmlPlayer.prototype.setLayer = function (name, on) {
     if (LAYERS.indexOf(name) === -1) return this;
     this.layers[name] = !!on;
-    // Runs are seeded against a threshold that ultradrips moves, so what is
-    // already on screen was seeded under the old one. Start them over.
-    if (name === 'ultradrips') { this.drips = []; this.seeded = {}; this.planned = null; }
     this.render();
     return this;
   };
@@ -1079,7 +1113,7 @@
     this.drips = [];
     this.seeded = {};
     // Widths moved, and the plan is ranked against them.
-    this.planned = null;
+    this.planned = false;
     this.render();
     this.emit('tune', this.opts);
     return this;

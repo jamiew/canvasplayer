@@ -71,13 +71,18 @@ are the diagrammatic ones.
 Five effects: ghost, pressure, bleed, jitter, fade. pressure drops the alpha
 where the hand moved fast, bleed lays a wider faint pass under the stroke.
 
-It opens in chisel, with ghost, the samples and the drips on.
+It opens in smooth, with ghost and the drips on.
 
 Runs of ink come from ranking each stroke's own samples slowest-first and
 taking a few of them, spaced apart. A fixed speed threshold does not survive
 contact with the archive: tag #158 never dropped under it and so never dripped
-at all, while a slow tag dripped from every sample. ultradrips is the same
-thing turned up, for those who like it.
+at all, while a slow tag dripped from every sample. How long and how fat a run
+is follows how slowly the pen was moving where it started, which is as close to
+pressure as the capture gets, plus a stable wobble either side.
+
+Effects reach the runs as well as the stroke, since a run is ink too: fade ages
+them, pressure lightens the fast ones, jitter moves them with the stroke they
+hang off, bleed soaks them outwards.
 
 Playback is monochrome in both light and dark, so the overlays separate
 themselves by weight, dashes and alpha rather than colour.
