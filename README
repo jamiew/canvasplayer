@@ -1,26 +1,91 @@
-
 canvasplayer
 ------------
 
-A quick stab at drawing GML (Graffiti Markup Language) data using Processing.js
-powered by javscript, HTML5 <canvas>, and https://000000book.com
+Graffiti Markup Language (GML) playback in the browser, on HTML5 <canvas>,
+with no dependencies.
 
-Online demo here: https://jamiedubs.com/canvasplayer
+Online demo: https://jamiew.github.io/canvasplayer
 Code: https://github.com/jamiew/canvasplayer
 
-GML data is pulled via JSONp from #000000book, an open database of GML files
+GML data comes from #000000book, an open database of GML files:
 https://000000book.com/data/147.json
 https://000000book.com/data/147.gml
 https://000000book.com/data/147
 
 
+Using it
+--------
+
+    <div class="stage"><canvas id="canvas"></canvas></div>
+    <script src="gml-player.js"></script>
+    <script src="gml-source.js"></script>
+    <script>
+      GmlSource.load(147, function (tag) {
+        new GmlPlayer(document.getElementById('canvas'), tag).play();
+      });
+    </script>
+
+The canvas sizes itself to its parent, so give that element the dimensions you
+want. gml-player.js has no dependencies and does not care where its data came
+from -- feed it the same shape from anywhere:
+
+    { id, app, screen: {x, y}, rotate, strokes: [ {points: [[x, y, time], ...]} ] }
+
+gml-source.js is only the #000000book adapter: it fetches a tag and flattens
+the GML tree into that. It tries fetch() and falls back to JSONP, because the
+API sends no CORS headers yet.
+
+
+What it does
+------------
+
+Plays a tag back in real time from the timestamps the capture app recorded,
+repairing the dead time between strokes and saying so when it has had to.
+Stroke width follows the speed of the hand, tapering the way a marker does.
+Ink pools where the pen dwelled and runs from there.
+
+Six drawing modes -- marker, hairline, outline, dots, spray, skeleton -- and
+five effects: glow, ghost, chromatic, jitter, fade. A debug overlay draws the
+captured points, velocity vectors, the bounding box and a speed graph, which
+is a good way to see what a GML file actually contains.
+
+
+What changed in v4
+------------------
+
+The 2009 version drew through Processing.js. This one does not, and fixes the
+maths it inherited:
+
+* playback advanced at most one point per frame, so a dense tag silently fell
+  behind its own timeline. That is what the downsampling hack worked around
+* stroke weight came from `sqrt(pow(dimx,2), pow(dimy,2))`. sqrt takes one
+  argument, so the vertical component was discarded and width only ever
+  tracked horizontal speed
+* landscape captures were rotated by `rotate(80)`, which Processing reads as
+  80 radians, not 80 degrees
+* the canvas was a fixed 800x580, so taller tags were cropped
+* normalized x and y were mapped straight onto canvas width and height. GML
+  normalizes the two axes independently, so the capture screen's aspect has to
+  be reapplied or tags come out squashed
+
+Orientation now comes from <environment><up> in the GML, which records it per
+capture -- the same app appears both ways. Tags older than roughly #200 have
+no <environment> at all, and only those fall back to matching the client name.
+
+
+Tests
+-----
+
+    node gml-player.test.js
+    node gml-source.test.js
+
+
 We'll be posting more GML demos, stay tuned:
 http://fffff.at
-https://twitter.com/fffffat 
+https://twitter.com/fffffat
 
 IRC channel is #fatlab on irc.freenode.net
 irc://irc.freenode.net/#fatlab
 
 
 Public domain Jamie Wilkinson & Free Art & Technology (F.A.T.) Lab. No rights reserved
-

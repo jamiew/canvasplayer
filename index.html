@@ -1,46 +1,81 @@
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
-  "https://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<!DOCTYPE html>
 <!--
   canvasplayer, 000000book edition
-  Graffiti Markup Language (GML) playback using HTML5 <canvas> and Processing.js
+  Graffiti Markup Language (GML) playback in the browser using <canvas>
 
   by Jamie Wilkinson... <https://jamiedubs.com> <https://github.com/jamiew>
 
-	v1: initial implementation
+  v1: initial implementation
   v2: multiple strokes, looping, iPhone translation, better stage positioning
-	v3: time-accurate playback
-
-  TODO:
-  * drips!!
-  * draw curves instead of simple lines
-  * scale & center the drawing on the stage
-  * customizable line width, speed sensitivity, etc.
-
+  v3: time-accurate playback
+  v4: dropped Processing.js for plain canvas, and fixed the maths underneath.
+      Drips, tapered strokes, drawing modes and a debug overlay. The old TODO
+      list -- drips, curves rather than straight segments, scaling and
+      centering the drawing, adjustable width and speed sensitivity -- is done.
 -->
-<html>
+<html lang="en">
 <head>
-  <title>canvasplayer: GML Playback using Processing.js</title>
-  <meta name="description" content="canvasplayer (2009): Graffiti Markup Language (GML) playback in the browser using Processing.js.">
-  <meta property="og:title" content="canvasplayer: GML Playback using Processing.js">
-  <meta property="og:description" content="canvasplayer (2009): Graffiti Markup Language (GML) playback in the browser using Processing.js.">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>canvasplayer: GML playback on &lt;canvas&gt;</title>
+  <meta name="description" content="canvasplayer (2009): Graffiti Markup Language (GML) playback in the browser on HTML5 canvas.">
+  <meta property="og:title" content="canvasplayer: GML playback on <canvas>">
+  <meta property="og:description" content="canvasplayer (2009): Graffiti Markup Language (GML) playback in the browser on HTML5 canvas.">
   <meta property="og:type" content="website">
   <meta name="twitter:card" content="summary">
-  <style type="text/css" media="screen">
-    body { background: #fff; color: #222; font-family: sans-serif;margin: 0 auto; text-align: center; }
-    body, canvas { width: 800px; }
-    canvas { height: 580px; background-color: #000; border: 5px solid #222; }
-    a, a:hover { color: #9f9f77; }
-    h1 { letter-spacing: -1px; color: #000; margin-left: 20px; }
-    h2 { font-family: "Arial", sans-serif; font-weight: normal; }
-    #loading { position: absolute; margin: -5px 0 0 0px; }
-    #tag_id { color: #999; text-transform: uppercase; font-size: 9pt; margin-top: -8px; }
+  <style media="screen">
+    :root { --line: #ddd; --dim: #777; }
+    * { box-sizing: border-box; }
+    body {
+      background: #fff; color: #222; margin: 0 auto; padding: 20px;
+      font-family: system-ui, -apple-system, "Helvetica Neue", sans-serif;
+      max-width: 1100px;
+    }
+    a { color: #9f7; color: #7a7a4a; }
+    h1 { letter-spacing: -1px; color: #000; font-size: 1.5rem; margin: 0 0 4px; }
+    h2 { font-weight: normal; }
 
-    /* new navigation sidebar */
-    #sidebar { position: absolute; margin-left: -170px; width: 150px; margin-top: 50px; overflow: hidden; font-size: 13pt; text-align: right; }
-    #sidebar ul { list-style: none; line-height: 1.4em; }
+    .layout { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 24px; align-items: start; }
+
+    #sidebar { font-size: 14px; text-align: right; }
+    #sidebar ul { list-style: none; line-height: 1.5em; padding: 0; margin: 0; }
     #sidebar hr { border: 0; border-bottom: 1px dotted #ccc; }
-    #sidebar a.selected { text-decoration: none; color: #000; }
+    #sidebar a.selected { text-decoration: none; color: #000; font-weight: 600; }
     #sidebar a.selected:after { content: "*"; color: #e33; font-weight: bold; }
+    #meta { color: var(--dim); font-size: 12px; margin-bottom: 12px; word-wrap: break-word; }
+
+    /* The player overrides the ratio per tag, from the drawing's own bounds.
+       The cap stops a tall capture turning into a screenful of black. */
+    .stage { position: relative; background: #000; border: 5px solid #222; aspect-ratio: 4 / 3; max-height: 70vh; }
+    .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+    .stage[data-error]:after {
+      content: attr(data-error); position: absolute; inset: 0; display: grid; place-items: center;
+      color: #e66; font: 13px ui-monospace, Menlo, monospace;
+    }
+
+    #loading { position: absolute; z-index: 2; left: 8px; top: 8px; }
+    #tag_id { color: #999; text-transform: uppercase; font-size: 9pt; }
+
+    .controls { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+    .controls input[type=range] { flex: 1 1 200px; min-width: 0; }
+    .clock { font: 12px ui-monospace, Menlo, monospace; color: var(--dim); }
+
+    .switches { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+    .switches .row { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; }
+    .switches .label { font: 11px ui-monospace, Menlo, monospace; color: var(--dim); width: 56px; }
+    button { font: 11px ui-monospace, Menlo, monospace; padding: 4px 7px; cursor: pointer;
+             border: 1px solid var(--line); background: #fff; color: #444; border-radius: 3px; }
+    button:hover { border-color: #999; color: #000; }
+    button[aria-pressed=true] { background: #222; border-color: #222; color: #fff; }
+
+    footer { margin-top: 22px; font-size: 13px; color: var(--dim); }
+
+    @media (max-width: 700px) {
+      .layout { grid-template-columns: minmax(0, 1fr); }
+      #sidebar { text-align: left; }
+      #sidebar ul { display: flex; flex-wrap: wrap; gap: 10px; }
+      #sidebar hr { display: none; }
+    }
   </style>
 
   <script async src="https://www.googletagmanager.com/gtag/js?id=UA-96220-1"></script>
@@ -53,242 +88,180 @@
 </head>
 <body>
 
-  <div id="loading">
-    <img src="loading1.gif" alt="" title="" id="loading_animation" />
-    <div id="tag_id">...</div>
+  <h1>canvasplayer: GML playback on &lt;canvas&gt;</h1>
+  <h2 style="font-size: 15px; color: #555; margin: 0 0 20px">
+    Graffiti Markup Language, played back from the timestamps the capture app recorded.
+  </h2>
+
+  <div class="layout">
+    <div id="sidebar">
+      <div id="meta"></div>
+      <h3 style="font-size: 13px; margin: 0 0 6px">Load tag:</h3>
+      <ul>
+        <li><a href="?latest" id="link-latest">Latest</a></li>
+        <li><a href="?random" id="link-random">Random</a></li>
+        <li><hr />
+            <a href="?id=161" id="link-161">Katsu</a></li>
+        <li><a href="?id=158" id="link-158">Jesus Saves</a></li>
+        <li><a href="?id=1399" id="link-1399">Seen</a></li>
+        <li><a href="?id=818" id="link-818">Hell</a></li>
+        <li><a href="?id=148" id="link-148">hello world</a></li>
+        <li><a href="?id=147" id="link-147">DustTag (2009)</a></li>
+        <li><a href="?id=842" id="link-842">404</a></li>
+        <li><hr />
+            <small>more on <a href="https://000000book.com">000000book.com</a></small></li>
+      </ul>
+    </div>
+
+    <div>
+      <div class="stage" id="stage">
+        <div id="loading">
+          <img src="loading1.gif" alt="Loading" id="loading_animation" />
+          <div id="tag_id">...</div>
+        </div>
+        <canvas id="canvas"></canvas>
+      </div>
+
+      <div class="controls">
+        <button id="play" type="button" aria-label="Pause">Pause</button>
+        <input id="scrub" type="range" min="0" max="1000" value="0" aria-label="Playback position">
+        <span class="clock" id="clock">00.00 / 00.00</span>
+        <button id="rate" type="button">1&times;</button>
+      </div>
+
+      <div class="switches">
+        <div class="row"><span class="label">Mode</span><span id="modes"></span></div>
+        <div class="row"><span class="label">Effects</span><span id="effects"></span></div>
+        <div class="row"><span class="label">Debug</span><span id="layers"></span></div>
+      </div>
+    </div>
   </div>
 
-  <h1>canvasplayer: GML Playback using Processing.js</h1>
-  <div id="sidebar">
-    <div id="meta"></div>
-    <h3>Load Tag:</h3>
-    <ul>
-      <li><a href="?latest" id="link-latest">Latest</a></li>
-      <li><a href="?random" id="link-random">Random</a></li>
-      <li><hr />
-          <a href="?id=161" id="link-161">Katsu</a></li>
-      <li><a href="?id=158" id="link-158">Jesus Saves</a></li>
-      <li><a href="?id=1399" id="link-1399">Seen</a></li>
-      <li><a href="?id=818" id="link-818">Hell</a></li>
-      <li><a href="?id=148" id="link-148">hello world</a></li>
-      <li><a href="?id=842" id="link-842">404</a></li>
-      <li><hr />
-          <small>more on <a href="https://000000book.com">000000book.com</a></small></li>
-    </ul>
-  </div>
+  <footer>
+    Code at <a href="https://github.com/jamiew/canvasplayer">github.com/jamiew/canvasplayer</a>.
+    <strong>GML webring:</strong>
+    <a href="http://fffff.at/gml-week-graffiti-markup-language/">intro</a> /
+    <a href="http://fffff.at/tag/gmlweek">recent projects</a> /
+    <a href="http://fffff.at/gml">GML spec</a> /
+    <a href="https://000000book.com">data (#000000book)</a>
+  </footer>
 
-  <canvas id="canvas"></canvas>
-  <p>
-    Code available at <a href="https://github.com/jamiew/canvasplayer">github.com/jamiew/canvasplayer</a>
-    <p><strong>GML Webring:</strong> <a href="http://fffff.at/gml-week-graffiti-markup-language/">intro</a> / <a href="http://fffff.at/tag/gmlweek">recent projects</a> / <a href="http://fffff.at/gml">GML spec</a> / <a href="https://000000book.com">data (#000000book)</a</p>
-  </p>
+  <script src="gml-player.js"></script>
+  <script src="gml-source.js"></script>
+  <script>
+  (function () {
+    var RATES = [0.25, 0.5, 1, 2, 4];
+    var stage = document.getElementById('stage');
+    var canvas = document.getElementById('canvas');
+    var scrub = document.getElementById('scrub');
+    var clock = document.getElementById('clock');
+    var play = document.getElementById('play');
+    var rate = document.getElementById('rate');
+    var player = null;
+    var scrubbing = false;
 
-
-  <!-- Our Code! -->
-  <script id="sketch" type="text/javascript">
-
-  // big TODO: use the time data instead of just doing continuous time playback
-  void setup(){
-    // setup our canvas
-    size(800, 580);
-    fps = 60;
-    frameRate(fps);
-    background(0);
-    smooth();
-
-
-    // options
-    downsampling = false;
-
-    // read orientation/scaling headers from the GML
-    // DustTag's GML does not specify orientation/scaling, so we're explicitly fixing known iPhone apps
-    var app_name = gml.tag.header && gml.tag.header.client && gml.tag.header.client.name;
-    if(app_name == 'Graffiti Analysis 2.0: DustTag' || app_name == 'DustTag: Graffiti Analysis 2.0' || app_name == 'Fat Tag - Katsu Edition'){
-      rotation = 80;
-      translation = [0, 800]; // still gets cropped; should scale down all values
-      console.log('iPhone app detected, rotating ...');
-    } else {
-      rotation = 0;
-      translation = [0, 0];
-      // console.log("Unknown appplication source: "+app_name);
-      // console.log(gml.tag.header);
-    }
-    console.log("rotation="+rotation+" translation="+translation);
-
-    // read data from the GML (GSON), loaded via #000000book JSONp callback
-    // the <script> tag is finicky if not at the bottom of the page, after the Processing.js sketch
-    pts = [];
-    strokes = (gml.tag.drawing.stroke instanceof Array ? gml.tag.drawing.stroke : [gml.tag.drawing.stroke]);
-    for(i in strokes){
-      console.log("Reading stroke #"+i+" ...");
-      pts = pts.concat(strokes[i].pt);
-      pts.push(undefined); //blank obj to indicate new stroke
-    }
-    end_time = pts[pts.length-2].time*1000; // -1 is our end-of-stroke undefined
-
-    // Set initial path vector & draw settings
-    loopCount = 0;
-    restart();
-    strokeWeight(12); // "base width"
-    console.log(pts.length+" points");
-    console.log("time="+end_time+"ms");
-
-    // ghetto: downsample GML that is too complex to draw in realtime
-    // I think we should be pre-computing all of our drawable frames
-    // (or at least paths) which would avoid this entirely...
-    threshold = 5;
-    density = 100/(end_time/pts.length);
-    console.log("point density = "+density);
-    if(downsampling == true && density > threshold){
-      // totally arbitrary based on debugging some drawings
-      if(density > threshold + 4){
-        amount = 3;
-      } else if(density > threshold + 2){
-        amount = 2;
-      } else {
-        amount = 1.5;
-      }
-      console.log("downsampling GML, amount="+amount);
-
-      newpts = [];
-      for(int i = 0; i < pts.length; i++){
-        // skip a great deal of points, but
-        // always include undefined (stroke separators)
-        if(i % amount == 0 || pts[i] == undefined){
-          newpts.push(pts[i]);
-        }
-      }
-      oldpts = pts;
-      pts = newpts;
-    }
-  }
-
-  void restart(){
-    console.log("restarting!.....");
-    loopCount += 1;
-    frameCount = 0;
-    pt = pts[0];
-    nxt = pts[1];
-    prev = undefined;
-    queued_at = pt.time*1000;
-    drawnPoints = 0;
-
-    background(0);
-  }
-
-  void draw(){
-
-    // Dump debugging every once in a while
-    diff = (millis()%end_time)-queued_at;
-    if(frameCount % 50 == 0){
-      if(pt){
-        console.log("loop="+loopCount+" millis="+millis()+" frameCount="+frameCount+" x="+pt.x+" y="+pt.y+" drawnPoints="+drawnPoints+" diff="+diff);
-      }
-      else{
-        console.log("frameCount="+frameCount+"... no point?!?");
-      }
-    }
-
-    // update point if we've reached next one...
-    if( (millis()%end_time) > queued_at){
-      prev = pts[drawnPoints-1];
-      pt = pts[drawnPoints];
-      drawnPoints += 1;
-      if(pts[drawnPoints]){
-        nxt = pts[drawnPoints];
-        queued_at = nxt.time*1000;
-      }
-      // console.log("millis="+millis()+" drawnPoints="+drawnPoints+" pt.time="+pt.time*1000+" queued_at="+queued_at+" diff="+diff);
-    }
-
-    // drawing rules -- e.g. see if we're done or need to skip or point
-    if( (millis()/loopCount) >= end_time ){
-      console.log("millis>end_time, "+drawnPoints+" points drawn of "+pts.length+ "... "+Math.round(drawnPoints/pts.length*100)+"%");
-      // exit();
-      restart();
-    }
-    // if(nxt == undefined){ console.log("no next point, drawing complete."); exit(); }
-    if(pt == undefined || pt == []){ return; } // if missing current pt, we are skipping
-    if(prev == undefined || prev == []){ prev = pt; } // if missing the prev, we're at the beginning of a new stroke
-
-    // geometry 101
-    dimx = (prev.x -pt.x)*width;
-    dimy = (prev.y -pt.y)*height;
-    hyp = sqrt(pow(dimx,2),pow(dimy,2));
-    // TODO angle of inflection
-
-    // transform display space if specified
-    translate(translation[0], translation[1]);
-    rotate(rotation);
-
-    // finally, draw
-    // use speed-sensitive stroke widths
-    strokeWidth = (1 / (sqrt(pow(dimx,2),pow(dimy,2)) + 50))*1000;
-    strokeWeight(strokeWidth);
-    stroke(255);
-
-    x1 = parseInt(prev.x*width);
-    y1 = parseInt(prev.y*height);
-    x2 = parseInt(pt.x*width);
-    y2 = parseInt(pt.y*height);
-
-    // console.log("1=("+x1+","+y1+") 2=("+x2+","+y2+")");
-    line(x1, y1, x2, y2);
-  }
-  </script>
-  <script src="processing.min.js" type="text/javascript" charset="utf-8"></script>
-
-
-  <!-- our GML data loading callback -->
-  <script type="text/javascript" charset="utf-8">
-    // stub out console.log() in case there's no Firebug for debugging
-    if(!console || !console.log) {
-      var console = new Array();
-      console.log = function () {}
-    }
-
-    // our JSONp callback method
-    function load_gml(data){
-      gml = data.gml;
-      document.getElementById("loading").innerHTML = '';
-      // console.log("load_gml() called");
-      // console.log(gml);
-      var canvas = document.getElementById("canvas");
-      var sketch = document.getElementById("sketch").text;
-      var p = Processing(canvas, sketch, gml);
-    };
-
-  </script>
-
-  <!-- load our GML data via JSONp from 000000book.com, the GML database -->
-  <!-- we have two differnet techniques for this... -->
-
-  <!-- #1: normal, basic JSONp -->
-  <!-- <script src="https://000000book.com/data/2365.json?callback=load_gml" type="text/javascript" charset="utf-8"></script>   -->
-
-  <!-- #2: a more complex example which can handle our fancy user interface :) -->
-  <script type="text/javascript" charset="utf-8">
-    // parse query variables from the URL to decide which tag to load
-    // - ?id=154
-    // - ?latest
-    // - ?random
-    var tag_id = 161; // default = KATSU
+    // ?id=154, ?latest or ?random -- as it has always worked.
+    var tagId = 161; // default: KATSU
     var matches = document.location.href.match(/id=(\d+)/);
-    console.log(matches);
-    if(matches && matches[1]){ tag_id = matches[1]; }
-    else if(/latest/.test(document.location.href)){ tag_id = 'latest'; }
-    else if(/random/.test(document.location.href)){ tag_id = 'random'; }
+    if (matches) tagId = matches[1];
+    else if (/latest/.test(document.location.search)) tagId = 'latest';
+    else if (/random/.test(document.location.search)) tagId = 'random';
 
-    // update our navigation controls
-    document.getElementById("tag_id").innerHTML = tag_id;
-    if(document.getElementById("link-"+tag_id)){ document.getElementById("link-"+tag_id).className = 'selected'; }
+    document.getElementById('tag_id').textContent = tagId;
+    var link = document.getElementById('link-' + tagId);
+    if (link) link.className = 'selected';
 
-    // append the cust <script> tag
-    var s=document.createElement('script');
-    s.setAttribute('src','https://000000book.com/data/'+tag_id+'.json?callback=load_gml');
-    document.getElementsByTagName('body')[0].appendChild(s);
+    function pad(n) { return String(n).padStart(2, '0'); }
+    function secs(t) { return pad(Math.floor(t)) + '.' + pad(Math.round((t % 1) * 100)); }
+
+    function toggles(host, names, labels, read, write) {
+      names.forEach(function (name) {
+        var button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = labels[name] || name;
+        button.setAttribute('aria-pressed', String(!!read(name)));
+        button.addEventListener('click', function () {
+          var next = button.getAttribute('aria-pressed') !== 'true';
+          write(name, next, button);
+          button.setAttribute('aria-pressed', String(next));
+        });
+        host.appendChild(button);
+      });
+    }
+
+    function build(data) {
+      document.getElementById('loading').style.display = 'none';
+
+      player = new GmlPlayer(canvas, data);
+
+      document.getElementById('meta').innerHTML =
+        '<strong>#' + (data.id || tagId) + '</strong><br>' +
+        (data.app ? data.app + '<br>' : '') +
+        player.strokes.length + (player.strokes.length === 1 ? ' stroke, ' : ' strokes, ') +
+        player.pointCount + ' pts<br>' +
+        secs(player.duration) + 's' + (data.rotate ? '<br>rotated 90&deg;' : '');
+
+      var modes = document.getElementById('modes');
+      GmlPlayer.MODES.forEach(function (mode) {
+        var button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = mode;
+        button.setAttribute('aria-pressed', String(player.mode === mode));
+        button.addEventListener('click', function () {
+          player.setMode(mode);
+          Array.prototype.forEach.call(modes.children, function (other) {
+            other.setAttribute('aria-pressed', String(other === button));
+          });
+        });
+        modes.appendChild(button);
+      });
+
+      toggles(document.getElementById('effects'), GmlPlayer.EFFECTS, {},
+        function (name) { return player.effects[name]; },
+        function (name, on) { player.setEffect(name, on); });
+
+      toggles(document.getElementById('layers'), GmlPlayer.LAYERS, {},
+        function (name) { return player.layers[name]; },
+        function (name, on) { player.setLayer(name, on); });
+
+      player.on('frame', function (s) {
+        if (!scrubbing) scrub.value = Math.round((s.time / s.duration) * 1000);
+        clock.textContent = secs(Math.min(s.time, s.duration)) + ' / ' + secs(s.duration);
+      });
+      player.on('state', function (s) {
+        play.textContent = s.playing ? 'Pause' : 'Play';
+        play.setAttribute('aria-label', s.playing ? 'Pause' : 'Play');
+      });
+
+      play.addEventListener('click', function () { player.toggle(); });
+      scrub.addEventListener('input', function () {
+        scrubbing = true;
+        player.pause().seek((scrub.value / 1000) * player.duration);
+      });
+      scrub.addEventListener('change', function () { scrubbing = false; });
+      rate.addEventListener('click', function () {
+        var next = RATES[(RATES.indexOf(player.opts.speed) + 1) % RATES.length];
+        player.setSpeed(next);
+        rate.innerHTML = (next === 1 ? '1' : next) + '&times;';
+      });
+
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) player.seek(player.duration);
+      else player.play();
+    }
+
+    GmlSource.load(tagId, function (data) {
+      if (!data.strokes.length) {
+        document.getElementById('loading').style.display = 'none';
+        stage.setAttribute('data-error', 'That tag has no stroke data');
+        return;
+      }
+      build(data);
+    }, function (err) {
+      document.getElementById('loading').style.display = 'none';
+      stage.setAttribute('data-error', err.message);
+    });
+  }());
   </script>
-
 
 </body>
 </html>
