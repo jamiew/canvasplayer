@@ -122,7 +122,6 @@
       text-indent: 0.34em;
       line-height: 1.2;
     }
-    h1 .lt { font-weight: 400; color: var(--mute); }
 
     .tagline {
       margin: 22px auto 0;
@@ -151,10 +150,6 @@
     #index { grid-area: index; }
     .deck { grid-area: deck; }
     .switches { grid-area: switches; }
-
-    @media (min-width: 1000px) {
-      .layout { grid-template-areas: "index deck switches"; }
-    }
 
     .eyebrow {
       font: 400 9px var(--mono);
@@ -208,7 +203,6 @@
     .transport { display: flex; align-items: center; gap: 14px; margin-top: 22px; }
 
     .transport button { min-width: 68px; }
-
 
     .clock {
       font: 400 10px var(--mono);
@@ -285,8 +279,7 @@
     button:hover:not(:disabled) { border-color: var(--ink); color: var(--ink); }
     /* :not(:disabled) is for specificity, not state. Without it :hover wins
        and a pressed button under the cursor goes black on black. */
-    .set button[aria-pressed="true"]:not(:disabled),
-    .set button[aria-checked="true"]:not(:disabled) { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+    .set button[aria-pressed="true"]:not(:disabled) { background: var(--ink); border-color: var(--ink); color: var(--paper); }
     button:disabled { opacity: 0.4; cursor: default; }
 
     /* Mode is one-of-many, so it joins into one control. Effects and debug
@@ -298,6 +291,7 @@
     /* Must follow .set.segmented above, or that wins on equal specificity and
        mode keeps its joined borders and zero row gap in the rail. */
     @media (min-width: 1000px) {
+      .layout { grid-template-areas: "index deck switches"; }
       .switches { margin-top: 0; gap: 30px; }
       .switch { grid-template-columns: minmax(0, 1fr); gap: 12px; }
       .switch .eyebrow { padding-top: 0; }
@@ -338,14 +332,6 @@
       .switch { grid-template-columns: 68px minmax(0, 1fr); gap: 12px; }
     }
   </style>
-
-  <script async src="https://www.googletagmanager.com/gtag/js?id=UA-96220-1"></script>
-  <script>
-    window.dataLayer = window.dataLayer || [];
-    function gtag(){dataLayer.push(arguments);}
-    gtag('js', new Date());
-    gtag('config', 'UA-96220-1');
-  </script>
 </head>
 <body>
 
@@ -414,15 +400,15 @@
     <div class="switches">
       <div class="switch">
         <span class="eyebrow" id="lbl-mode">Ink mode</span>
-        <span class="set segmented" id="modes" role="radiogroup" aria-labelledby="lbl-mode"></span>
+        <span class="set segmented" id="modes" role="group" aria-labelledby="lbl-mode"></span>
       </div>
       <div class="switch">
         <span class="eyebrow" id="lbl-fx">Effects</span>
-        <span class="set" id="effects" aria-labelledby="lbl-fx"></span>
+        <span class="set" id="effects" role="group" aria-labelledby="lbl-fx"></span>
       </div>
       <div class="switch">
         <span class="eyebrow" id="lbl-dbg">Data</span>
-        <span class="set" id="layers" aria-labelledby="lbl-dbg"></span>
+        <span class="set" id="layers" role="group" aria-labelledby="lbl-dbg"></span>
       </div>
     </div>
   </div>
@@ -483,11 +469,9 @@
     });
 
     // ?id=154, ?latest or ?random, as it has always worked.
-    var tagId = 161; // default: KATSU
-    var matches = document.location.search.match(/id=(\d+)/);
-    if (matches) tagId = matches[1];
-    else if (/latest/.test(document.location.search)) tagId = 'latest';
-    else if (/random/.test(document.location.search)) tagId = 'random';
+    var search = document.location.search;
+    // default: KATSU
+    var tagId = (search.match(/id=(\d+)/) || [])[1] || (search.match(/latest|random/) || [])[0] || 161;
 
     var current = document.getElementById('link-' + tagId);
     if (current) current.setAttribute('aria-current', 'page');
@@ -501,25 +485,23 @@
      * on load made three rows of buttons appear at once, shifting the page.
      */
     function build(host, names, opts) {
-      var flag = opts.exclusive ? 'aria-checked' : 'aria-pressed';
       names.forEach(function (name) {
         var button = document.createElement('button');
         button.type = 'button';
         button.textContent = name;
         button.disabled = true;
-        button.setAttribute(flag, 'false');
-        if (opts.exclusive) button.setAttribute('role', 'radio');
+        button.setAttribute('aria-pressed', 'false');
         button.addEventListener('click', function () {
           if (opts.exclusive) {
             opts.set(name);
             host.querySelectorAll('button').forEach(function (other) {
-              other.setAttribute(flag, String(other === button));
+              other.setAttribute('aria-pressed', String(other === button));
             });
             return;
           }
-          var on = button.getAttribute(flag) !== 'true';
+          var on = button.getAttribute('aria-pressed') !== 'true';
           opts.set(name, on);
-          button.setAttribute(flag, String(on));
+          button.setAttribute('aria-pressed', String(on));
         });
         host.appendChild(button);
       });
@@ -534,8 +516,7 @@
 
     function sync(host, read) {
       host.querySelectorAll('button').forEach(function (button) {
-        var flag = button.hasAttribute('aria-checked') ? 'aria-checked' : 'aria-pressed';
-        button.setAttribute(flag, String(!!read(button.textContent)));
+        button.setAttribute('aria-pressed', String(!!read(button.textContent)));
         button.disabled = false;
       });
     }
@@ -545,7 +526,7 @@
       player = new GmlPlayer(canvas, data);
 
       readout.innerHTML =
-        '<b>#' + (data.id || tagId) + '</b>' +
+        '<b>#' + data.id + '</b>' +
         (data.app ? '<span class="sep">/</span>' + data.app : '') +
         '<span class="sep">/</span>' + player.strokes.length +
         (player.strokes.length === 1 ? ' stroke' : ' strokes') +

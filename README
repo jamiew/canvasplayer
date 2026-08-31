@@ -9,8 +9,6 @@ Code: https://github.com/jamiew/canvasplayer
 
 GML data comes from #000000book, an open database of GML files:
 https://000000book.com/data/147.json
-https://000000book.com/data/147.gml
-https://000000book.com/data/147
 
 
 Running it locally
@@ -28,8 +26,7 @@ marks every sample, "vectors" draws per-sample velocity, "bounds" shows the
 capture screen against the drawing, "graph" plots speed. A GML file is usually
 messier than it looks.
 
-    node gml-player.test.js
-    node gml-source.test.js
+    node test.js
 
 
 Using it
@@ -51,8 +48,8 @@ from -- feed it the same shape from anywhere:
     { id, app, rotate, strokes: [ {points: [[x, y, time], ...]} ] }
 
 gml-source.js is only the #000000book adapter: it fetches a tag and flattens
-the GML tree into that. It tries fetch() and falls back to JSONP, because the
-API sends no CORS headers yet.
+the GML tree into that. It loads over JSONP, because the API sends no CORS
+headers yet.
 
 
 What it does
@@ -86,57 +83,6 @@ hang off, bleed soaks them outwards.
 
 Playback is monochrome in both light and dark, so the overlays separate
 themselves by weight, dashes and alpha rather than colour.
-
-
-What changed in v4
-------------------
-
-Dropped Processing.js, and fixed the maths it inherited:
-
-* playback advanced one point per frame, so a dense tag fell behind its own
-  timeline. That is what the downsampling hack worked around
-* stroke weight came from `sqrt(pow(dimx,2), pow(dimy,2))`. sqrt takes one
-  argument, so width only ever tracked horizontal speed
-* landscape captures were rotated by `rotate(80)`, which Processing reads as
-  80 radians
-* the canvas was a fixed 800x580, so taller tags were cropped
-
-
-What changed in v5
-------------------
-
-One frame, one size. The frame used to take the shape of each drawing, so
-switching tags resized the box and moved everything under it. It is a fixed
-square now, with the drawing fitted inside.
-
-Orientation comes from <environment><up>. Tags before about #170 have none, and
-the old code guessed from the client's name. That was wrong: Graffiti Analysis
-1.0 wrote the tag's name there, not the app's, so #161 is "katsu-4", matched
-/Katsu/, and played on its side. #818 and #1399 are "hell" and "seen".
-
-The geometry answers it instead. Both axes are normalized against the same edge
-of the capture screen, so an upright drawing cannot leave 0..1. The env-less
-DustTag captures all reach y = 1.3..1.5, the 480px edge in units of the 320px
-one.
-
-That also means the axes are already square. v4 reapplied the screen's 3:2
-ratio on top, which squashed every landscape capture.
-
-Parser: <drawing> can repeat (#100 has five) and <tag> can arrive as an array.
-#100 used to come back with no strokes at all.
-
-Light and dark themes, following the system until you pick one.
-
-Dropped the glow effect, and the offscreen compositing that existed to serve
-it.
-
-
-We'll be posting more GML demos, stay tuned:
-http://fffff.at
-https://twitter.com/fffffat
-
-IRC channel is #fatlab on irc.freenode.net
-irc://irc.freenode.net/#fatlab
 
 
 Public domain Jamie Wilkinson & Free Art & Technology (F.A.T.) Lab. No rights reserved

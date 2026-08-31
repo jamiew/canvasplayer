@@ -1,8 +1,7 @@
 /*
  * Loads GML from #000000book and flattens it into what GmlPlayer wants.
  *
- * Tries fetch, falls back to JSONP. The API sends no CORS headers, so JSONP
- * is the path that runs today. An HTTP status is reported, not retried.
+ * Loads over JSONP. The API sends no CORS headers, so fetch cannot read it.
  *
  * Public domain, Jamie Wilkinson & Free Art & Technology (F.A.T.) Lab.
  */
@@ -39,11 +38,11 @@
    * /Katsu/ match laid it on its side.
    */
   function isLandscape(environment, strokes) {
-    var up = (environment && environment.up) || null;
-    var x = up ? num(up.x) : null;
-    var y = up ? num(up.y) : null;
+    var up = (environment && environment.up) || {};
+    var x = num(up.x);
+    var y = num(up.y);
 
-    if (x !== null && y !== null && (x !== 0 || y !== 0)) return Math.abs(x) > Math.abs(y);
+    if (x !== null && y !== null && (x || y)) return Math.abs(x) > Math.abs(y);
 
     return (strokes || []).some(function (stroke) {
       return stroke.points.some(function (p) { return p[1] > 1; });
@@ -55,16 +54,11 @@
    * passes through untouched: the player repairs it and says so.
    */
   function parse(gml, id) {
-    var tag = first((gml && (gml.tag || gml.GML)) || {});
-    var header = first(tag.header);
-    var environment = first(tag.environment);
-    var client = first(header.client);
+    var tag = first(gml && (gml.tag || gml.GML));
 
-    var raw = list(tag.drawing).reduce(function (all, drawing) {
+    var strokes = list(tag.drawing).reduce(function (all, drawing) {
       return all.concat(list(first(drawing).stroke));
-    }, []);
-
-    var strokes = raw.map(function (stroke) {
+    }, []).map(function (stroke) {
       var points = list(stroke && stroke.pt).map(function (pt) {
         var x = num(pt && pt.x);
         var y = num(pt && pt.y);
@@ -77,8 +71,8 @@
 
     return {
       id: id,
-      app: client.name || null,
-      rotate: isLandscape(environment, strokes),
+      app: first(first(tag.header).client).name || null,
+      rotate: isLandscape(first(tag.environment), strokes),
       strokes: strokes
     };
   }
@@ -86,40 +80,7 @@
   // Fetch by id, or "latest" or "random", which the API also answers to.
   var pending = 0;
 
-  function deliver(data, id, onReady, onError) {
-    if (!data || !data.gml) {
-      if (onError) onError(new Error('No GML in the response for ' + id));
-      return;
-    }
-    onReady(parse(data.gml, data.id || id), data);
-  }
-
   function load(id, onReady, onError) {
-    var url = API + encodeURIComponent(id) + '.json';
-
-    if (global.fetch) {
-      global.fetch(url, { mode: 'cors' })
-        .then(function (response) {
-          if (!response.ok) throw Object.assign(new Error('HTTP ' + response.status), { http: true });
-          return response.json();
-        })
-        .then(function (data) { deliver(data, id, onReady, onError); })
-        .catch(function (err) {
-          // A status means the server answered. Anything else never arrived,
-          // which is where JSONP still helps.
-          if (err && err.http) {
-            if (onError) onError(err);
-            return;
-          }
-          jsonp(id, onReady, onError);
-        });
-      return;
-    }
-
-    jsonp(id, onReady, onError);
-  }
-
-  function jsonp(id, onReady, onError) {
     var name = '__gmlLoad' + (pending++);
     var script = document.createElement('script');
     var done = false;
@@ -132,14 +93,18 @@
     global[name] = function (data) {
       done = true;
       cleanup();
-      deliver(data, id, onReady, onError);
+      if (!data || !data.gml) {
+        if (onError) onError(new Error('No GML in the response for ' + id));
+        return;
+      }
+      onReady(parse(data.gml, data.id || id));
     };
 
     script.onerror = function () {
       if (done) return;
       cleanup();
       // A script tag reports one undifferentiated error, so a missing tag and
-      // a dead network look the same here. The fetch path can tell them apart.
+      // a dead network look the same here.
       if (onError) onError(new Error('Could not load tag ' + id + ' -- it may not exist'));
     };
 
@@ -147,5 +112,5 @@
     document.body.appendChild(script);
   }
 
-  global.GmlSource = { load: load, jsonp: jsonp, parse: parse, isLandscape: isLandscape, API: API };
+  global.GmlSource = { load: load, parse: parse, isLandscape: isLandscape };
 }(window));

@@ -43,7 +43,6 @@
     dripRuns: 7,
     // Samples between runs, so a slow passage makes one rather than a row.
     dripGap: 7,
-    dripLength: 1,
     // How much of a run's size comes from how hard the pen was bearing down,
     // and how much is left to vary run to run.
     dripPressure: 1.5,
@@ -59,7 +58,6 @@
     dripDrift: 0.02,
 
     hairline: 1.5,
-    dotScale: 1,
     sprayDensity: 6,
     sprayScatter: 1.1,
 
@@ -244,9 +242,6 @@
     // Width multiplier, raised for the bleed pass under the stroke.
     this.spread = 1;
     this.playing = false;
-    this.time = 0;
-    this.drips = [];
-    this.seeded = {};
     this.listeners = {};
     this.load(data);
 
@@ -475,7 +470,7 @@
   GmlPlayer.prototype.dots = function (ctx, path) {
     for (var i = 0; i < path.length; i++) {
       ctx.beginPath();
-      ctx.arc(path[i][0], path[i][1], Math.max(path[i][2] / 2 * this.opts.dotScale, 0.5), 0, TAU);
+      ctx.arc(path[i][0], path[i][1], Math.max(path[i][2] / 2, 0.5), 0, TAU);
       ctx.fill();
     }
   };
@@ -546,32 +541,17 @@
     var path = this.path(stroke, si, from, to, partial);
     if (!path.length) return;
 
-    switch (this.mode) {
-      case 'smooth':
-        this.ribbon(ctx, smooth(path, this.opts.smoothSteps), true);
-        break;
-      case 'chisel':
-        this.chisel(ctx, path);
-        break;
-      case 'hairline':
-        this.polyline(ctx, path, this.opts.hairline * this.spread);
-        break;
-      case 'outline':
-        ctx.lineWidth = 1;
-        this.ribbon(ctx, path, false);
-        break;
-      case 'dots':
-        this.dots(ctx, path);
-        break;
-      case 'spray':
-        this.spray(ctx, path, si);
-        break;
-      case 'skeleton':
-        this.skeleton(ctx, path);
-        break;
-      default:
-        this.ribbon(ctx, path, true);
+    if (this.mode === 'smooth') return this.ribbon(ctx, smooth(path, this.opts.smoothSteps), true);
+    if (this.mode === 'chisel') return this.chisel(ctx, path);
+    if (this.mode === 'hairline') return this.polyline(ctx, path, this.opts.hairline * this.spread);
+    if (this.mode === 'dots') return this.dots(ctx, path);
+    if (this.mode === 'spray') return this.spray(ctx, path, si);
+    if (this.mode === 'skeleton') return this.skeleton(ctx, path);
+    if (this.mode === 'outline') {
+      ctx.lineWidth = 1;
+      return this.ribbon(ctx, path, false);
     }
+    this.ribbon(ctx, path, true);
   };
 
   /*
@@ -752,7 +732,7 @@
       if (age <= 0) return;
       // Ease out: a run accelerates away from the pool, then slows as it thins.
       var p = 1 - Math.pow(1 - clamp(age / d.fall, 0, 1), 2.2);
-      var len = d.length * opts.dripLength * p;
+      var len = d.length * p;
       if (len <= 0) return;
 
       var alpha = 1;
@@ -962,7 +942,6 @@
 
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.globalAlpha = 1;
-    ctx.globalCompositeOperation = 'source-over';
     ctx.fillStyle = this.opts.background;
     ctx.fillRect(0, 0, this.w, this.h);
 
@@ -998,35 +977,7 @@
     if (this.layers.graph) this.drawSpeedGraph(t);
     if (this.layers.points) this.drawPoints(progress);
 
-    this.emit('frame', this.stats(t, progress));
-  };
-
-  GmlPlayer.prototype.stats = function (t, progress) {
-    var drawn = 0;
-    var active = -1;
-    var speed = 0;
-    for (var i = 0; i < progress.length; i++) {
-      drawn += progress[i].count;
-      if (progress[i].count > 0 && progress[i].count < this.strokes[i].points.length) {
-        active = i;
-        speed = this.strokes[i].speed[progress[i].count - 1];
-      }
-    }
-    var head = null;
-    if (active >= 0) head = this.strokes[active].points[progress[active].count - 1];
-    return {
-      time: t,
-      duration: this.duration,
-      points: drawn,
-      totalPoints: this.pointCount,
-      stroke: active >= 0 ? active + 1 : this.strokes.length,
-      strokes: this.strokes.length,
-      speed: speed,
-      peakSpeed: this.peakSpeed,
-      head: head,
-      drips: this.drips.length,
-      timing: this.timing
-    };
+    this.emit('frame', { time: t, duration: this.duration });
   };
 
   /* --- transport --------------------------------------------------------- */
@@ -1099,27 +1050,8 @@
 
   GmlPlayer.prototype.setSpeed = function (rate) {
     this.opts.speed = rate;
-    this.emit('speed', rate);
     return this;
   };
-
-  /*
-   * Retune the brush and re-derive the widths. Drips are dropped, because
-   * where ink pools depends on the dwell threshold that may have just moved.
-   */
-  GmlPlayer.prototype.retune = function (changes) {
-    Object.assign(this.opts, changes);
-    this.peakSpeed = measure(this.strokes, this.opts) || 1;
-    this.drips = [];
-    this.seeded = {};
-    // Widths moved, and the plan is ranked against them.
-    this.planned = false;
-    this.render();
-    this.emit('tune', this.opts);
-    return this;
-  };
-
-  GmlPlayer.prototype.defaults = function () { return Object.assign({}, DEFAULTS); };
 
   GmlPlayer.prototype.destroy = function () {
     this.pause();
@@ -1130,6 +1062,5 @@
   GmlPlayer.LAYERS = LAYERS;
   GmlPlayer.MODES = MODES;
   GmlPlayer.EFFECTS = EFFECTS;
-  GmlPlayer.DEFAULTS = DEFAULTS;
   global.GmlPlayer = GmlPlayer;
 }(window));
