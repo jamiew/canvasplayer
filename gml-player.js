@@ -17,7 +17,7 @@
   'use strict';
 
   // Diagnostic overlays, each independently switchable.
-  var LAYERS = ['ink', 'drips', 'vectors', 'points', 'bounds', 'graph'];
+  var LAYERS = ['ink', 'drips', 'ultradrips', 'vectors', 'points', 'bounds', 'graph'];
 
   // How the ink itself is drawn. One at a time.
   var MODES = ['marker', 'smooth', 'chisel', 'hairline', 'outline', 'dots', 'spray', 'skeleton'];
@@ -35,9 +35,30 @@
     // Higher smooths out capture jitter.
     smoothing: 0.72,
 
-    // Below this speed the pen is dwelling, and ink pools.
-    dwellSpeed: 0.14,
+    // One run per this many samples, capped per stroke. Runs are chosen by
+    // ranking a stroke's own samples slowest-first, not by a fixed speed: a
+    // fast tag never dropped under an absolute threshold and so never dripped
+    // at all, while a slow one dripped from everywhere.
+    dripEvery: 55,
+    dripRuns: 5,
+    // Samples between runs, so a slow passage makes one rather than a row.
+    dripGap: 7,
     dripLength: 1,
+    // How far the run narrows from where it leaves the pool to the head, and
+    // how much more it thins as it stretches. A run that tapers to nothing
+    // leaves its head looking like a pin, so the neck keeps some width.
+    dripTaper: 0.55,
+    dripStretch: 0.3,
+    // The head is a little fatter than the neck it hangs from, not a bead
+    // dropped at the tip.
+    dripHead: 1.45,
+    dripDrift: 0.02,
+    // What ultradrips multiplies: frequency, cap, spacing, length and width.
+    ultraEvery: 0.18,
+    ultraRuns: 22,
+    ultraGap: 0.3,
+    ultraLength: 2.4,
+    ultraWidth: 1.5,
 
     hairline: 1.5,
     dotScale: 1,
@@ -218,9 +239,9 @@
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.opts = Object.assign({}, DEFAULTS, options || {});
-    this.layers = { ink: true, drips: true, vectors: true, points: true, bounds: false, graph: true };
+    this.layers = { ink: true, drips: true, ultradrips: false, vectors: false, points: true, bounds: false, graph: false };
     this.effects = { ghost: true, pressure: false, bleed: false, jitter: false, fade: false };
-    this.mode = 'marker';
+    this.mode = 'chisel';
     // Width multiplier, raised for the bleed pass under the stroke.
     this.spread = 1;
     this.playing = false;
@@ -277,6 +298,7 @@
     this.time = 0;
     this.drips = [];
     this.seeded = {};
+    this.planned = null;
   };
 
   GmlPlayer.prototype.resize = function () {
@@ -612,66 +634,140 @@
    * Ink runs where the pen pooled, and where a stroke lifted while still
    * heavy. Both come from the capture, so a tag always drips the same way.
    */
+  /*
+   * Where a stroke will run, decided once for the whole stroke.
+   *
+   * Each stroke's samples are ranked by its own speed and the slowest are
+   * taken, spaced apart, up to a count that follows the stroke's length. That
+   * is what makes runs land consistently: a threshold on raw speed gave a fast
+   * tag none at all and a slow one a run from every sample.
+   */
+  GmlPlayer.prototype.planDrips = function (ultra) {
+    var opts = this.opts;
+    var heavy = (opts.maxWidth + opts.minWidth) / 2;
+    var gap = Math.max(1, Math.round(opts.dripGap * (ultra ? opts.ultraGap : 1)));
+    var every = opts.dripEvery * (ultra ? opts.ultraEvery : 1);
+    var cap = ultra ? opts.ultraRuns : opts.dripRuns;
+
+    this.strokes.forEach(function (stroke) {
+      var pts = stroke.points;
+      var want = clamp(Math.round(pts.length / every), 1, cap);
+      var order = [];
+      var i;
+
+      for (i = 1; i < pts.length; i++) order.push(i);
+      order.sort(function (a, b) { return stroke.speed[a] - stroke.speed[b]; });
+
+      var chosen = [];
+      for (i = 0; i < order.length && chosen.length < want; i++) {
+        var at = order[i];
+        var clash = false;
+        for (var j = 0; j < chosen.length; j++) {
+          if (Math.abs(chosen[j] - at) < gap) { clash = true; break; }
+        }
+        if (!clash) chosen.push(at);
+      }
+
+      // A stroke lifted while still laying down a heavy line always runs.
+      var last = pts.length - 1;
+      if (stroke.width[last] > heavy && chosen.indexOf(last) === -1) chosen.push(last);
+
+      stroke.dripAt = chosen.sort(function (a, b) { return a - b; });
+    });
+
+    this.planned = ultra;
+  };
+
   GmlPlayer.prototype.seedDrips = function (t) {
     var self = this;
-    var heavy = (this.opts.maxWidth + this.opts.minWidth) / 2;
+    var ultra = !!this.layers.ultradrips;
+    var grow = ultra ? this.opts.ultraLength : 1;
+    var fatten = ultra ? this.opts.ultraWidth : 1;
+
+    if (this.planned !== ultra) this.planDrips(ultra);
 
     this.strokes.forEach(function (stroke, si) {
       var pts = stroke.points;
-      var last = pts.length - 1;
 
-      for (var i = 1; i < pts.length; i++) {
-        if (pts[i][2] > t) break;
+      stroke.dripAt.forEach(function (i) {
+        if (pts[i][2] > t) return;
         var key = si + ':' + i;
-        if (self.seeded[key]) continue;
-
-        var dwelling = stroke.speed[i] < self.opts.dwellSpeed;
-        var lifted = i === last && stroke.width[i] > heavy;
-        if (!dwelling && !lifted) continue;
+        if (self.seeded[key]) return;
         self.seeded[key] = true;
 
-        var pooled = lifted ? 1 : 1 - (stroke.speed[i] / self.opts.dwellSpeed);
+        // Slower than the rest of this stroke means more ink gathered, so a
+        // longer run.
+        var pooled = 1 - clamp(stroke.speed[i] / self.peakSpeed, 0, 1);
         var dwell = pts[i][2] - pts[i - 1][2];
         self.drips.push({
           x: pts[i][0],
           y: pts[i][1],
-          width: stroke.width[i] * 0.4,
-          length: clamp(0.015 + dwell * 1.2 + pooled * 0.075, 0.015, 0.24),
+          width: stroke.width[i] * 0.5 * fatten,
+          length: clamp(0.015 + dwell * 1.2 + pooled * 0.075, 0.015, 0.24) * grow,
           born: pts[i][2],
-          // Staggered off the point index, so neighbouring runs do not fall
-          // in lockstep. Stable, so the tag drips the same way every time.
+          // Runs wander rather than falling dead straight. Stable per point,
+          // so the same tag drips the same way every time.
+          drift: (noise(si * 31 + i, 3) - 0.5) * 2,
+          // Staggered off the point index, so neighbours do not fall in
+          // lockstep.
           fall: 0.8 + (i % 7) * 0.16
         });
-      }
+      });
     });
   };
 
+  /*
+   * A run of ink, drawn as one shape.
+   *
+   * It leaves the pool at the stroke's own width and narrows on the way down,
+   * but never to nothing: the same ink is spread over more length as it
+   * stretches, so the neck thins with the fall rather than pinching shut. The
+   * head is a rounded end a little fatter than the neck it hangs from. Tapering
+   * to a point and dropping a disc there is what made these read as pins.
+   */
+  var DRIP_STEPS = 7;
+
   GmlPlayer.prototype.drawDrips = function (ctx, t) {
     var self = this;
-    ctx.fillStyle = this.opts.color;
+    var opts = this.opts;
+    ctx.fillStyle = opts.color;
+
     this.drips.forEach(function (d) {
       var age = t - d.born;
       if (age <= 0) return;
-      // Ease out: a drip accelerates away from the pool then slows as it thins.
+      // Ease out: a run accelerates away from the pool, then slows as it thins.
       var p = 1 - Math.pow(1 - clamp(age / d.fall, 0, 1), 2.2);
-      var len = d.length * self.opts.dripLength * p;
+      var len = d.length * opts.dripLength * p;
       if (len <= 0) return;
 
       var x = self.px(d.x);
       var y0 = self.py(d.y);
       var y1 = self.py(d.y + len);
-      var w = d.width * self.unit;
+      var drift = d.drift * opts.dripDrift * self.unit;
+      // Stretching the same ink further leaves less of it across the neck.
+      var half = (d.width * self.unit / 2) * (1 - opts.dripStretch * p);
+
+      var at = function (k) {
+        var f = k / DRIP_STEPS;
+        return {
+          x: x + drift * f * f,
+          y: lerp(y0, y1, f),
+          half: half * (1 - opts.dripTaper * f)
+        };
+      };
+
+      var head = at(DRIP_STEPS);
+      var r = head.half * opts.dripHead;
+      var k;
 
       ctx.beginPath();
-      ctx.moveTo(x - w / 2, y0);
-      ctx.quadraticCurveTo(x - w / 2, lerp(y0, y1, 0.72), x, y1);
-      ctx.quadraticCurveTo(x + w / 2, lerp(y0, y1, 0.72), x + w / 2, y0);
+      ctx.moveTo(x - half, y0);
+      for (k = 1; k <= DRIP_STEPS; k++) { var l = at(k); ctx.lineTo(l.x - l.half, l.y); }
+      // The head closes the shape, so it cannot detach from the neck.
+      ctx.arc(head.x, head.y, r, Math.PI, 0, true);
+      for (k = DRIP_STEPS; k >= 1; k--) { var rr = at(k); ctx.lineTo(rr.x + rr.half, rr.y); }
+      ctx.lineTo(x + half, y0);
       ctx.closePath();
-      ctx.fill();
-
-      // The bead of ink at the head of the run.
-      ctx.beginPath();
-      ctx.arc(x, y1, w * 0.5 * (1 - p * 0.35), 0, TAU);
       ctx.fill();
     });
   };
@@ -851,12 +947,13 @@
       ctx.restore();
     }
 
-    if (this.layers.drips) this.seedDrips(t);
+    if (this.layers.drips || this.layers.ultradrips) this.seedDrips(t);
 
-    if (this.layers.ink || this.layers.drips) {
+    var running = this.layers.drips || this.layers.ultradrips;
+    if (this.layers.ink || running) {
       ctx.save();
       if (this.layers.ink) this.drawInk(ctx, t, progress);
-      if (this.layers.drips) this.drawDrips(ctx, t);
+      if (running) this.drawDrips(ctx, t);
       ctx.restore();
     }
 
@@ -945,6 +1042,9 @@
   GmlPlayer.prototype.setLayer = function (name, on) {
     if (LAYERS.indexOf(name) === -1) return this;
     this.layers[name] = !!on;
+    // Runs are seeded against a threshold that ultradrips moves, so what is
+    // already on screen was seeded under the old one. Start them over.
+    if (name === 'ultradrips') { this.drips = []; this.seeded = {}; this.planned = null; }
     this.render();
     return this;
   };
@@ -978,6 +1078,8 @@
     this.peakSpeed = measure(this.strokes, this.opts) || 1;
     this.drips = [];
     this.seeded = {};
+    // Widths moved, and the plan is ranked against them.
+    this.planned = null;
     this.render();
     this.emit('tune', this.opts);
     return this;
