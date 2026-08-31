@@ -66,7 +66,7 @@
     body {
       margin: 0 auto;
       padding: 40px 24px 56px;
-      max-width: 940px;
+      max-width: 1000px;
       background: var(--paper);
       color: var(--ink);
       font-family: var(--sans);
@@ -77,32 +77,34 @@
     a:hover { text-decoration-color: var(--mute); }
     :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 
-    /* --- theme switch ------------------------------------------------------ */
+    /* --- theme ------------------------------------------------------------- */
 
-    .topbar { display: flex; justify-content: flex-end; align-items: center; gap: 9px; }
+    .topbar { display: flex; justify-content: flex-end; }
 
-    #theme { padding: 0; border: 0; background: none; cursor: pointer; }
-    #theme .track {
-      display: block; position: relative;
-      width: 34px; height: 18px;
-      border: 1px solid var(--mute); border-radius: 9px;
+    #theme {
+      position: relative;
+      width: 30px; height: 30px; padding: 0;
+      display: grid; place-items: center;
+      background: none; border: 1px solid transparent; border-radius: 4px;
+      color: var(--mute); cursor: pointer;
     }
-    #theme:hover .track { border-color: var(--ink); }
-    #theme .knob {
-      position: absolute; top: 2px; left: 2px;
-      width: 12px; height: 12px; border-radius: 50%;
-      background: var(--ink);
-      transition: transform .22s cubic-bezier(.4, 0, .2, 1);
+    #theme:hover { color: var(--ink); border-color: var(--rule); }
+    #theme svg {
+      grid-area: 1 / 1;
+      width: 16px; height: 16px;
+      transition: opacity .2s ease, transform .3s cubic-bezier(.4, 0, .2, 1);
     }
-    /* 34 wide, less 2 borders, 12 knob and 2 either side. */
-    #theme[aria-checked="true"] .knob { transform: translateX(16px); }
+    /* Both icons are always in the box. The inactive one winds away. */
+    #theme .moon { opacity: 0; transform: rotate(-90deg) scale(.5); }
+    :root[data-theme="dark"] #theme .sun { opacity: 0; transform: rotate(90deg) scale(.5); }
+    :root[data-theme="dark"] #theme .moon { opacity: 1; transform: none; }
 
-    body, .stage, button, #theme .track, .timeline .rail, .timeline .fill {
+    body, .stage, button, .timeline .rail, .timeline .fill {
       transition: background-color .2s ease, border-color .2s ease, color .2s ease;
     }
 
     @media (prefers-reduced-motion: reduce) {
-      body, .stage, button, #theme .track, #theme .knob { transition: none; }
+      body, .stage, button, #theme svg { transition: none; }
     }
 
     /* --- masthead --------------------------------------------------------- */
@@ -127,13 +129,26 @@
 
     /* --- layout ----------------------------------------------------------- */
 
+    /* Equal rails either side, so the frame lands on the page's centre line
+       and the masthead sits over it. The switches fill the right rail when
+       there is room, and drop under the frame when there is not. */
     .layout {
       display: grid;
-      /* The deck column is exactly the stage, so the pair centres as a unit. */
-      grid-template-columns: 132px var(--stage);
-      gap: 28px;
+      /* Equal fluid rails, so the frame lands on the page's centre line at
+         every width and the masthead sits over it. Fixed rails overflowed
+         and pushed the tag list off the left edge around 900px. */
+      grid-template-columns: minmax(0, 1fr) var(--stage) minmax(0, 1fr);
+      grid-template-areas: "index deck ." "index switches .";
+      gap: 0 24px;
       align-items: start;
-      justify-content: center;
+    }
+
+    #index { grid-area: index; }
+    .deck { grid-area: deck; }
+    .switches { grid-area: switches; }
+
+    @media (min-width: 1000px) {
+      .layout { grid-template-areas: "index deck switches"; }
     }
 
     .eyebrow {
@@ -241,6 +256,18 @@
     .switch .eyebrow { padding-top: 6px; }
     .switch .set { display: flex; flex-wrap: wrap; gap: 6px; }
 
+    /* In the rail there is no room for a label beside the buttons, so it goes
+       above and the buttons wrap in the width that is left. */
+    @media (min-width: 1000px) {
+      .switches { margin-top: 0; gap: 18px; }
+      .switch { grid-template-columns: minmax(0, 1fr); gap: 7px; }
+      .switch .eyebrow { padding-top: 0; }
+      /* Joined borders only read as one control on a single row, and mode
+         wraps to three in the rail. The filled state carries it instead. */
+      .set.segmented { gap: 6px; }
+      .set.segmented button + button { margin-left: 0; }
+    }
+
     button {
       font: 500 11px var(--mono);
       padding: 5px 9px;
@@ -274,10 +301,15 @@
     footer.page a:hover { color: var(--ink); }
     footer.page .sep { color: var(--rule); margin: 0 6px; }
 
-    /* The one place the frame shrinks: a screen too narrow to hold it. */
-    @media (max-width: 720px) {
+    /* Below this the rails have no useful width left, so everything stacks.
+       The frame shrinks with the column, which caps it at --stage. */
+    @media (max-width: 859px) {
       body { padding: 28px 18px 40px; }
-      .layout { grid-template-columns: minmax(0, var(--stage)); gap: 22px; justify-items: center; }
+      .layout {
+        grid-template-columns: minmax(0, var(--stage));
+        grid-template-areas: "index" "deck" "switches";
+        gap: 22px; justify-items: center; justify-content: center;
+      }
       #index { text-align: center; width: 100%; }
       #index ul { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 16px; margin-bottom: 0; }
       #index li + li { margin-top: 0; }
@@ -299,18 +331,22 @@
 <body>
 
   <div class="topbar">
-    <span class="eyebrow">Theme</span>
-    <button id="theme" type="button" role="switch" aria-checked="false" aria-label="Dark mode">
-      <span class="track"><span class="knob"></span></span>
+    <button id="theme" type="button" aria-label="Switch to dark theme">
+      <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="4.2"/>
+        <path d="M12 1.8v2.4M12 19.8v2.4M4.4 4.4l1.7 1.7M17.9 17.9l1.7 1.7M1.8 12h2.4M19.8 12h2.4M4.4 19.6l1.7-1.7M17.9 6.1l1.7-1.7"/>
+      </svg>
+      <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M20.8 13.4A8.6 8.6 0 1 1 10.6 3.2a6.7 6.7 0 0 0 10.2 10.2z"/>
+      </svg>
     </button>
   </div>
 
   <header class="masthead">
     <h1>canvasplayer</h1>
-    <p class="tagline">
-      Graffiti Markup Language, played back on <span class="lt">&lt;canvas&gt;</span> from the
-      timestamps the capture app recorded.
-    </p>
+    <p class="tagline">Graffiti Markup Language, replayed from its own timestamps.</p>
   </header>
 
   <div class="layout">
@@ -351,20 +387,20 @@
       </div>
 
       <div id="readout">&mdash;</div>
+    </div>
 
-      <div class="switches">
-        <div class="switch">
-          <span class="eyebrow" id="lbl-mode">Mode</span>
-          <span class="set segmented" id="modes" role="radiogroup" aria-labelledby="lbl-mode"></span>
-        </div>
-        <div class="switch">
-          <span class="eyebrow" id="lbl-fx">Ink</span>
-          <span class="set" id="effects" aria-labelledby="lbl-fx"></span>
-        </div>
-        <div class="switch">
-          <span class="eyebrow" id="lbl-dbg">Data</span>
-          <span class="set" id="layers" aria-labelledby="lbl-dbg"></span>
-        </div>
+    <div class="switches">
+      <div class="switch">
+        <span class="eyebrow" id="lbl-mode">Mode</span>
+        <span class="set segmented" id="modes" role="radiogroup" aria-labelledby="lbl-mode"></span>
+      </div>
+      <div class="switch">
+        <span class="eyebrow" id="lbl-fx">Ink</span>
+        <span class="set" id="effects" aria-labelledby="lbl-fx"></span>
+      </div>
+      <div class="switch">
+        <span class="eyebrow" id="lbl-dbg">Data</span>
+        <span class="set" id="layers" aria-labelledby="lbl-dbg"></span>
       </div>
     </div>
   </div>
@@ -406,13 +442,13 @@
 
     function setTheme(dark) {
       root.dataset.theme = dark ? 'dark' : 'light';
-      theme.setAttribute('aria-checked', String(dark));
+      theme.setAttribute('aria-label', 'Switch to ' + (dark ? 'light' : 'dark') + ' theme');
     }
 
     setTheme(root.dataset.theme === 'dark');
 
     theme.addEventListener('click', function () {
-      var dark = theme.getAttribute('aria-checked') !== 'true';
+      var dark = root.dataset.theme !== 'dark';
       setTheme(dark);
       try { localStorage.setItem('theme', dark ? 'dark' : 'light'); } catch (e) {}
     });
