@@ -164,11 +164,11 @@
     #index .eyebrow { margin-bottom: 10px; }
     #index ul { list-style: none; margin: 0 0 14px; padding: 0; }
     #index li + li { margin-top: 2px; }
-    #index a { display: block; font-size: 13.5px; line-height: 1.5; text-decoration: none; }
-    #index a:hover { text-decoration: underline; }
-    #index a[aria-current] { font-weight: 700; }
+    #index ul a { display: block; font-size: 13.5px; line-height: 1.5; text-decoration: none; }
+    #index ul a:hover { text-decoration: underline; }
+    #index ul a[aria-current] { font-weight: 700; }
     /* In the gutter, so selecting a tag never re-flows the list. */
-    #index a[aria-current]:after {
+    #index ul a[aria-current]:after {
       content: "\2190"; position: absolute; margin-left: 8px; color: var(--mute); font-weight: 400;
     }
     #index .group { border-top: 1px solid var(--rule-soft); padding-top: 12px; margin-top: 12px; }
@@ -202,6 +202,7 @@
 
     .transport button { min-width: 62px; }
 
+
     .clock {
       font: 500 11px var(--mono);
       font-variant-numeric: tabular-nums;
@@ -233,6 +234,13 @@
       background: var(--ink); border: 2px solid var(--paper); cursor: grab;
     }
     .timeline input::-moz-range-track { background: none; }
+
+    /* Sharing one row leaves the timeline about 60px on a phone, which is not
+       enough to scrub. It takes a row of its own, above the buttons. */
+    @media (max-width: 600px) {
+      .transport { flex-wrap: wrap; justify-content: space-between; gap: 10px 12px; }
+      .timeline { order: -1; flex: 1 0 100%; }
+    }
 
     /* --- readout ---------------------------------------------------------- */
 
@@ -314,7 +322,8 @@
       #index ul { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 16px; margin-bottom: 0; }
       #index li + li { margin-top: 0; }
       #index .group { border-top: 0; padding-top: 0; margin-top: 8px; }
-      #index a[aria-current]:after { display: none; }
+      #index footer { margin-top: 10px; }
+      #index ul a[aria-current]:after { display: none; }
       #index a[aria-current] { text-decoration: underline; }
       .switch { grid-template-columns: 52px minmax(0, 1fr); gap: 10px; }
     }
@@ -364,7 +373,7 @@
         <li><a href="?latest" id="link-latest">Latest</a></li>
         <li><a href="?random" id="link-random">Random</a></li>
       </ul>
-      <footer>more on<br><a href="https://000000book.com">000000book.com</a></footer>
+      <footer>more on <a href="https://000000book.com">000000book.com</a></footer>
     </nav>
 
     <div class="deck">
