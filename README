@@ -18,14 +18,18 @@ No build step, so any static server works:
 
     python3 -m http.server 8420
 
-Open http://localhost:8420/?id=161. Also ?latest and ?random. Tags come from
-000000book.com over JSONP, so you need the network but not a server. Switching
-tags in the page keeps whatever mode, effects and layers you picked.
+Open http://localhost:8420/?id=161. Also ?latest and ?random. Tags load from
+000000book.com over JSONP, so the page needs the network but no backend of its
+own. It runs from file:// too. Switching tags in the page keeps whatever mode,
+effects and layers you picked.
 
-To debug a tag, turn on the DATA switches: "points" numbers the strokes and
-marks every sample, "vectors" draws per-sample velocity, "bounds" shows the
-capture screen against the drawing, "graph" plots speed. A GML file is usually
-messier than it looks.
+To debug a tag, turn on the DATA switches. "points" marks every sample and
+numbers each stroke where it starts. "vectors" draws an arrow every fourth
+sample, longer and brighter the faster the hand was moving. "bounds" draws the
+capture screen, the tag's own bounding box and a 0.1 grid. "graph" plots speed
+against time.
+
+Tests, which need no browser and no network:
 
     node test.js
 
@@ -43,47 +47,51 @@ Using it
     </script>
 
 The canvas sizes itself to its parent, so give that element the dimensions you
-want. gml-player.js has no dependencies and does not care where its data came
-from -- feed it the same shape from anywhere:
+want. gml-player.js has no dependencies, touches no DOM but the canvas you hand
+it, and does not care where its data came from -- feed it the same shape from
+anywhere:
 
     { id, app, rotate, strokes: [ {points: [[x, y, time], ...]} ] }
 
 gml-source.js is only the #000000book adapter: it fetches a tag and flattens
-the GML tree into that. It loads over JSONP, because the API sends no CORS
-headers yet.
+the GML tree into that. It loads over JSONP because the API answers without an
+Access-Control-Allow-Origin header, so fetch cannot read the response.
 
 
 What it does
 ------------
 
-Plays a tag in real time from the recorded timestamps, repairing the dead time
-between strokes and saying so. Width follows the speed of the hand and tapers
-like a marker. Ink pools where the pen dwelled, and runs from there.
+Plays a tag in real time from the recorded timestamps. Capture apps write
+zeroes, unix epochs, out-of-order samples and minute-long stalls, so the
+timeline is repaired first, and what changed is counted on player.timing.
+
+Width follows the speed of the hand: widest where it was slowest, thinnest at
+this tag's own peak. Runs of ink start where the line is widest.
 
 Four modes. marker and chisel are handstyles: marker runs a spline through the
 samples to take the staircase off a slow hand, and widens as the hand slows.
 chisel sweeps a flat nib at a fixed angle, so width comes from direction rather
 than speed. hairline and skeleton are the diagrammatic ones.
 
-Five effects: ghost, pressure, bleed, jitter, fade. pressure drops the alpha
-where the hand moved fast, bleed lays a wider faint pass under the stroke.
+Four effects. ghost lays the whole tag underneath at low alpha, so you can see
+where the hand is going. bleed puts three widening passes under the stroke.
+jitter offsets every sample by a fixed amount of noise. fade drops the alpha of
+older ink, leaving a comet tail behind the hand.
 
 It opens in marker, with ghost and the drips on.
 
-Runs of ink come from ranking each stroke's own samples slowest-first and
-taking a few of them, spaced apart. A fixed speed threshold does not survive
-contact with the archive: tag #158 never dropped under it and so never dripped
-at all, while a slow tag dripped from every sample.
+Runs come from ranking each stroke's own samples slowest-first and taking a few
+of them, spaced apart. Ranking within a stroke rather than against an absolute
+speed is what makes them land on a fast tag and a slow one alike.
 
-Paint runs when the wet film is thicker than the wall can hold, and the more of
-it there is, the further it gets. So one pool feeds both: how slowly the pen was
-moving and how long it sat there set how fat a run is and how far it falls, plus
-a stable wobble. Runs fall straight down. They may lean as they go, but only by
-a fraction of how far they have already fallen, because gravity is down.
+One pool feeds both how fat a run is and how far it falls: how slowly the pen
+was moving where it started, and how long it sat there. Runs fall straight down.
+They may lean as they go, but only by a fraction of how far they have already
+fallen.
 
 Effects reach the runs as well as the stroke, since a run is ink too: fade ages
-them, pressure lightens the fast ones, jitter moves them with the stroke they
-hang off, bleed soaks them outwards.
+them, jitter moves them with the stroke they hang off, bleed soaks them
+outwards. ghost is the exception, and lays down the ink alone.
 
 Playback is monochrome in both light and dark, so the overlays separate
 themselves by weight, dashes and alpha rather than colour.

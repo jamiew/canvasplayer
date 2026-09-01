@@ -10,7 +10,8 @@
  *
  * Replaces the 2009 Processing.js sketch, which advanced one point per frame,
  * measured speed on the x axis alone, rotated by 80 radians, and cropped
- * anything taller than its fixed canvas. See the README.
+ * anything taller than its fixed 800x580 canvas. All four are in the sketch it
+ * replaced, at bd51860^:index.html.
  */
 
 (function (global) {
@@ -23,7 +24,7 @@
   var MODES = ['marker', 'chisel', 'hairline', 'skeleton'];
 
   // Combinable treatments applied on top of whichever mode is active.
-  var EFFECTS = ['ghost', 'pressure', 'bleed', 'jitter', 'fade'];
+  var EFFECTS = ['ghost', 'bleed', 'jitter', 'fade'];
 
   var DEFAULTS = {
     // Fractions of the artwork's on-screen size. A marker lays down more ink
@@ -64,13 +65,11 @@
     jitter: 0.9,
     fadeWindow: 1.6,
     ghostAlpha: 0.14,
-    // Fast strokes lay down less ink, so alpha follows speed as well as width.
-    pressureFloor: 0.3,
 
     // A flat nib held at a fixed angle. Width comes from direction, not speed.
     nib: 0.05,
     nibAngle: -Math.PI / 4,
-    // Points inserted per captured segment in smooth mode.
+    // Points inserted per captured segment in marker mode.
     smoothSteps: 4,
 
     // Breathing room around the drawing, as a fraction of the frame.
@@ -237,7 +236,7 @@
     this.ctx = canvas.getContext('2d');
     this.opts = Object.assign({}, DEFAULTS, options || {});
     this.layers = { ink: true, drips: true, vectors: false, points: false, bounds: false, graph: false };
-    this.effects = { ghost: true, pressure: false, bleed: false, jitter: false, fade: false };
+    this.effects = { ghost: true, bleed: false, jitter: false, fade: false };
     this.mode = 'marker';
     // Width multiplier, raised for the bleed pass under the stroke.
     this.spread = 1;
@@ -476,19 +475,36 @@
     var nx = Math.cos(this.opts.nibAngle) * half;
     var ny = Math.sin(this.opts.nibAngle) * half;
 
-    // One quad per segment, each filled on its own. Tracing the whole sweep as
-    // a single out-and-back outline wound the two directions opposite ways, so
-    // under the nonzero rule a stroke that crossed itself cancelled out and
-    // punched diamond holes through its own ink.
+    /*
+     * Every segment's quad in one path, all wound the same way, filled once.
+     *
+     * Filling each quad on its own left a hairline seam down every shared
+     * edge, where two antialiased edges do not add up to full coverage. One
+     * fill takes the union instead -- but only if the windings agree. Tracing
+     * the sweep as a single out-and-back outline wound the two directions
+     * opposite ways, so under the nonzero rule a stroke that crossed itself
+     * cancelled and punched holes through its own ink.
+     */
+    ctx.beginPath();
     for (var i = 1; i < path.length; i++) {
-      ctx.beginPath();
-      ctx.moveTo(path[i - 1][0] + nx, path[i - 1][1] + ny);
-      ctx.lineTo(path[i][0] + nx, path[i][1] + ny);
-      ctx.lineTo(path[i][0] - nx, path[i][1] - ny);
-      ctx.lineTo(path[i - 1][0] - nx, path[i - 1][1] - ny);
+      var ax = path[i - 1][0];
+      var ay = path[i - 1][1];
+      var bx = path[i][0];
+      var by = path[i][1];
+      ctx.moveTo(ax + nx, ay + ny);
+      // The segment crossed with the nib: its sign is the quad's winding.
+      if ((bx - ax) * ny - (by - ay) * nx < 0) {
+        ctx.lineTo(ax - nx, ay - ny);
+        ctx.lineTo(bx - nx, by - ny);
+        ctx.lineTo(bx + nx, by + ny);
+      } else {
+        ctx.lineTo(bx + nx, by + ny);
+        ctx.lineTo(bx - nx, by - ny);
+        ctx.lineTo(ax - nx, ay - ny);
+      }
       ctx.closePath();
-      ctx.fill();
     }
+    ctx.fill();
   };
 
   /* Centreline plus width ticks: the ribbon drawn as a technical diagram. */
@@ -526,9 +542,9 @@
   GmlPlayer.prototype.drawInk = function (ctx, t, progress) {
     var self = this;
     var base = ctx.globalAlpha;
-    // Fade varies alpha with age, pressure with speed. Either one means the
-    // stroke has to be drawn in slices rather than as one path.
-    var sliced = this.effects.fade || this.effects.pressure;
+    // Fade varies alpha with age, so the stroke has to be drawn in slices
+    // rather than as one path.
+    var sliced = this.effects.fade;
 
     this.strokes.forEach(function (stroke, si) {
       var p = progress[si];
@@ -560,14 +576,7 @@
       for (var from = 0; from < p.count; from += step) {
         var to = Math.min(from + step + 1, p.count);
         var last = Math.min(to, pts.length) - 1;
-        var alpha = 1;
-        if (self.effects.fade) {
-          alpha *= clamp(1 - (t - pts[last][2]) / self.opts.fadeWindow, 0.04, 1);
-        }
-        if (self.effects.pressure) {
-          alpha *= lerp(1, self.opts.pressureFloor,
-            clamp((stroke.speed[last] || 0) / self.peakSpeed, 0, 1));
-        }
+        var alpha = clamp(1 - (t - pts[last][2]) / self.opts.fadeWindow, 0.04, 1);
         ctx.globalAlpha = base * alpha;
         self.drawStroke(ctx, stroke, si, from, to, to === p.count ? p.partial : 0);
       }
@@ -657,7 +666,6 @@
         self.drips.push({
           si: si,
           i: i,
-          speed: stroke.speed[i] || 0,
           x: pts[i][0],
           y: pts[i][1],
           width: stroke.width[i] * (0.22 + pool * 0.3) * vary,
@@ -704,11 +712,7 @@
       var len = d.length * p;
       if (len <= 0) return;
 
-      var alpha = 1;
-      if (fx.fade) alpha *= clamp(1 - age / opts.fadeWindow, 0.04, 1);
-      if (fx.pressure) {
-        alpha *= lerp(1, opts.pressureFloor, clamp(d.speed / self.peakSpeed, 0, 1));
-      }
+      var alpha = fx.fade ? clamp(1 - age / opts.fadeWindow, 0.04, 1) : 1;
 
       // The same offset the stroke got, so a run stays attached to it.
       var jx = jitter ? (noise(d.si * 91 + d.i, 7) - 0.5) * jitter : 0;

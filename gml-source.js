@@ -1,7 +1,8 @@
 /*
  * Loads GML from #000000book and flattens it into what GmlPlayer wants.
  *
- * Loads over JSONP. The API sends no CORS headers, so fetch cannot read it.
+ * Loads over JSONP. The API answers without an Access-Control-Allow-Origin
+ * header, so fetch cannot read the response.
  *
  * Public domain, Jamie Wilkinson & Free Art & Technology (F.A.T.) Lab.
  */
@@ -28,14 +29,20 @@
   /*
    * Which way was up when the tag was captured.
    *
-   * <environment><up> along +x means the device was sideways. Tags before
-   * about #170 have no <environment>, so the geometry has to answer it: both
-   * axes are normalized against the same edge, so y can only pass 1 on a
-   * sideways capture.
+   * <environment><up> along +x means the device was sideways. Whether <up> is
+   * there at all follows the capture app, not the tag number: Fat Tag - Katsu
+   * Edition and Graffiti Analysis 2.0 write it, Graffiti Analysis 1.0 never
+   * does however late the tag (#1399 has none), and #147 ships an <environment>
+   * with nothing in it.
    *
-   * Do not guess from the client's name. Graffiti Analysis 1.0 wrote the
-   * tag's name there, not the app's, so #161 is "katsu-4" and the old
-   * /Katsu/ match laid it on its side.
+   * So the geometry has to answer it when <up> is missing: both axes are
+   * normalized against the same edge, so y can only pass 1 on a sideways
+   * capture.
+   *
+   * Do not guess from the client's name. Graffiti Analysis 1.0 wrote the tag's
+   * name into <client><name>, not the app's, so #161 is "katsu-4", #158 is
+   * "jesus-saves" and #1399 is "seen". The old /Katsu/ match laid #161 on its
+   * side.
    */
   function isLandscape(environment, strokes) {
     var up = (environment && environment.up) || {};
