@@ -197,6 +197,15 @@
 
     .transport button { min-width: 62px; }
 
+    /* Both glyphs live in the button. Hiding rather than fading the one that
+       is not the current state keeps the button from changing width. */
+    /* min-height matches the text buttons beside it, which a 12px glyph
+       plus padding falls a pixel short of. */
+    #play { display: grid; place-items: center; min-height: 25px; }
+    #play svg { width: 12px; height: 12px; }
+    #play .pause, #play[data-playing] .play { display: none; }
+    #play[data-playing] .pause { display: block; }
+
     .clock {
       font: 500 11px var(--sans);
       font-variant-numeric: tabular-nums;
@@ -373,7 +382,14 @@
       </div>
 
       <div class="transport">
-        <button id="play" type="button" disabled>Play</button>
+        <button id="play" type="button" disabled aria-label="Play">
+          <svg class="play" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M8 5.2v13.6L19 12z"/>
+          </svg>
+          <svg class="pause" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M7.6 5.2h3.4v13.6H7.6zM13 5.2h3.4v13.6H13z"/>
+          </svg>
+        </button>
         <div class="timeline">
           <div class="rail"></div>
           <div class="fill" id="fill"></div>
@@ -559,7 +575,10 @@
         fill.style.width = (at * 100).toFixed(2) + '%';
         clock.textContent = secs(Math.min(s.time, s.duration)) + ' / ' + secs(s.duration);
       });
-      player.on('state', function (s) { play.textContent = s.playing ? 'Pause' : 'Play'; });
+      player.on('state', function (s) {
+        play.toggleAttribute('data-playing', s.playing);
+        play.setAttribute('aria-label', s.playing ? 'Pause' : 'Play');
+      });
 
       play.addEventListener('click', function () { player.toggle(); });
       scrub.addEventListener('input', function () {

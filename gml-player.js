@@ -838,7 +838,9 @@
     var ctx = this.ctx;
     var self = this;
     ctx.save();
-    ctx.lineWidth = 1;
+    ctx.lineWidth = Math.max(this.unit * 0.0024, 1);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
 
     this.strokes.forEach(function (stroke, si) {
       var count = progress[si].count;
@@ -848,15 +850,25 @@
       for (var i = 1; i < count; i += 4) {
         var dx = pts[i][0] - pts[i - 1][0];
         var dy = pts[i][1] - pts[i - 1][1];
-        var len = Math.hypot(dx, dy) || 1;
         var mag = clamp(stroke.speed[i] / self.peakSpeed, 0, 1);
-        var reach = 6 + mag * 22;
+        // Sized against the artwork rather than in fixed pixels, and never
+        // shorter than a stub: a slow tag used to draw arrows too small to see.
+        var reach = self.unit * (0.024 + mag * 0.055);
+        var a = Math.atan2(dy, dx);
         var x = self.px(pts[i][0]);
         var y = self.py(pts[i][1]);
-        ctx.strokeStyle = 'rgba(255,255,255,' + (0.18 + mag * 0.5).toFixed(3) + ')';
+        var tx = x + Math.cos(a) * reach;
+        var ty = y + Math.sin(a) * reach;
+        var head = reach * 0.34;
+
+        ctx.strokeStyle = 'rgba(255,255,255,' + (0.4 + mag * 0.5).toFixed(3) + ')';
         ctx.beginPath();
         ctx.moveTo(x, y);
-        ctx.lineTo(x + (dx / len) * reach, y + (dy / len) * reach);
+        ctx.lineTo(tx, ty);
+        // A head on each, so an arrow says which way the hand was going.
+        ctx.lineTo(tx - Math.cos(a - 0.42) * head, ty - Math.sin(a - 0.42) * head);
+        ctx.moveTo(tx, ty);
+        ctx.lineTo(tx - Math.cos(a + 0.42) * head, ty - Math.sin(a + 0.42) * head);
         ctx.stroke();
       }
     });
