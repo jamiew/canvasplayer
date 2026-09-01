@@ -20,7 +20,7 @@
   var LAYERS = ['ink', 'drips', 'vectors', 'points', 'bounds', 'graph'];
 
   // How the ink itself is drawn. One at a time.
-  var MODES = ['marker', 'smooth', 'chisel', 'hairline', 'outline', 'dots', 'spray', 'skeleton'];
+  var MODES = ['marker', 'chisel', 'hairline', 'skeleton'];
 
   // Combinable treatments applied on top of whichever mode is active.
   var EFFECTS = ['ghost', 'pressure', 'bleed', 'jitter', 'fade'];
@@ -39,8 +39,8 @@
     // ranking a stroke's own samples slowest-first, not by a fixed speed: a
     // fast tag never dropped under an absolute threshold and so never dripped
     // at all, while a slow one dripped from everywhere.
-    dripEvery: 40,
-    dripRuns: 7,
+    dripEvery: 18,
+    dripRuns: 14,
     // Samples between runs, so a slow passage makes one rather than a row.
     dripGap: 7,
     // How much of a run's size comes from how hard the pen was bearing down,
@@ -58,8 +58,6 @@
     dripDrift: 0.02,
 
     hairline: 1.5,
-    sprayDensity: 6,
-    sprayScatter: 1.1,
 
     jitter: 0.9,
     fadeWindow: 1.6,
@@ -238,7 +236,7 @@
     this.opts = Object.assign({}, DEFAULTS, options || {});
     this.layers = { ink: true, drips: true, vectors: false, points: false, bounds: false, graph: false };
     this.effects = { ghost: true, pressure: false, bleed: false, jitter: false, fade: false };
-    this.mode = 'smooth';
+    this.mode = 'marker';
     // Width multiplier, raised for the bleed pass under the stroke.
     this.spread = 1;
     this.playing = false;
@@ -413,13 +411,13 @@
    * along the normal, then back down the other side. That taper is not
    * possible with a per-segment lineWidth.
    */
-  GmlPlayer.prototype.ribbon = function (ctx, path, fill) {
+  GmlPlayer.prototype.ribbon = function (ctx, path) {
     if (!path.length) return;
 
     if (path.length === 1) {
       ctx.beginPath();
       ctx.arc(path[0][0], path[0][1], path[0][2] / 2, 0, TAU);
-      if (fill) ctx.fill(); else ctx.stroke();
+      ctx.fill();
       return;
     }
 
@@ -442,12 +440,11 @@
     for (i = 1; i < left.length; i++) ctx.lineTo(left[i][0], left[i][1]);
     for (i = right.length - 1; i >= 0; i--) ctx.lineTo(right[i][0], right[i][1]);
     ctx.closePath();
-    if (fill) ctx.fill(); else ctx.stroke();
+    ctx.fill();
 
     // Caps as discs, not arcs spliced into the outline. An arc picks its
     // sweep from the sign of the angle difference, and at a stroke's end that
     // is as likely to go the long way round, notching every stroke.
-    if (!fill) return;
     var ends = [path[0], path[path.length - 1]];
     for (i = 0; i < ends.length; i++) {
       ctx.beginPath();
@@ -467,14 +464,6 @@
     ctx.stroke();
   };
 
-  GmlPlayer.prototype.dots = function (ctx, path) {
-    for (var i = 0; i < path.length; i++) {
-      ctx.beginPath();
-      ctx.arc(path[i][0], path[i][1], Math.max(path[i][2] / 2, 0.5), 0, TAU);
-      ctx.fill();
-    }
-  };
-
   /*
    * A flat nib held at one angle. The ribbon is the area the nib sweeps, so
    * the line is fat across the nib and hairline along it. That is where a
@@ -484,39 +473,19 @@
     var half = this.opts.nib * this.unit * this.spread / 2;
     var nx = Math.cos(this.opts.nibAngle) * half;
     var ny = Math.sin(this.opts.nibAngle) * half;
-    var i;
 
-    ctx.beginPath();
-    ctx.moveTo(path[0][0] + nx, path[0][1] + ny);
-    for (i = 1; i < path.length; i++) ctx.lineTo(path[i][0] + nx, path[i][1] + ny);
-    for (i = path.length - 1; i >= 0; i--) ctx.lineTo(path[i][0] - nx, path[i][1] - ny);
-    ctx.closePath();
-    ctx.fill();
-  };
-
-  /* Particles scattered across the width of the line, thickest where slowest. */
-  GmlPlayer.prototype.spray = function (ctx, path, si) {
-    var density = Math.max(1, Math.round(this.opts.sprayDensity));
+    // One quad per segment, each filled on its own. Tracing the whole sweep as
+    // a single out-and-back outline wound the two directions opposite ways, so
+    // under the nonzero rule a stroke that crossed itself cancelled out and
+    // punched diamond holes through its own ink.
     for (var i = 1; i < path.length; i++) {
-      var ax = path[i - 1][0];
-      var ay = path[i - 1][1];
-      var dx = path[i][0] - ax;
-      var dy = path[i][1] - ay;
-      var len = Math.hypot(dx, dy) || 1;
-      var nx = -dy / len;
-      var ny = dx / len;
-      var r = path[i][2] / 2 * this.opts.sprayScatter;
-
-      for (var k = 0; k < density; k++) {
-        var along = noise(si * 131 + i, k * 3 + 1);
-        // Bias toward the centre so the line still reads as a line.
-        var across = (noise(si * 131 + i, k * 3 + 2) + noise(si * 131 + i, k * 3 + 5) - 1) * r;
-        var size = 0.4 + noise(si * 131 + i, k * 3 + 7) * 1.4;
-        // Squares, not circles. At two pixels nobody can tell, and a busy tag
-        // draws tens of thousands per frame.
-        ctx.fillRect(ax + dx * along + nx * across - size, ay + dy * along + ny * across - size,
-          size * 2, size * 2);
-      }
+      ctx.beginPath();
+      ctx.moveTo(path[i - 1][0] + nx, path[i - 1][1] + ny);
+      ctx.lineTo(path[i][0] + nx, path[i][1] + ny);
+      ctx.lineTo(path[i][0] - nx, path[i][1] - ny);
+      ctx.lineTo(path[i - 1][0] - nx, path[i - 1][1] - ny);
+      ctx.closePath();
+      ctx.fill();
     }
   };
 
@@ -541,17 +510,11 @@
     var path = this.path(stroke, si, from, to, partial);
     if (!path.length) return;
 
-    if (this.mode === 'smooth') return this.ribbon(ctx, smooth(path, this.opts.smoothSteps), true);
     if (this.mode === 'chisel') return this.chisel(ctx, path);
     if (this.mode === 'hairline') return this.polyline(ctx, path, this.opts.hairline * this.spread);
-    if (this.mode === 'dots') return this.dots(ctx, path);
-    if (this.mode === 'spray') return this.spray(ctx, path, si);
     if (this.mode === 'skeleton') return this.skeleton(ctx, path);
-    if (this.mode === 'outline') {
-      ctx.lineWidth = 1;
-      return this.ribbon(ctx, path, false);
-    }
-    this.ribbon(ctx, path, true);
+    // marker: a spline through the samples, so a slow hand does not staircase.
+    this.ribbon(ctx, smooth(path, this.opts.smoothSteps));
   };
 
   /*
@@ -693,14 +656,16 @@
           speed: stroke.speed[i] || 0,
           x: pts[i][0],
           y: pts[i][1],
-          width: stroke.width[i] * (0.3 + pressure * 0.5) * varyWide,
-          length: clamp((0.012 + dwell * 1.2 + pressure * 0.11) * varyLen, 0.01, 0.3),
+          width: stroke.width[i] * (0.22 + pressure * 0.32) * varyWide,
+          length: clamp((0.008 + dwell * 0.55 + pressure * 0.05) * varyLen, 0.006, 0.12),
           born: pts[i][2],
           // Runs wander rather than falling dead straight.
           drift: (noise(si * 31 + i, 3) - 0.5) * 2,
           // Staggered off the point index, so neighbours do not fall in
           // lockstep.
-          fall: 0.8 + (i % 7) * 0.16
+          // Ink creeps. A run takes seconds to reach its full length, not the
+          // best part of one.
+          fall: 2.6 + (i % 7) * 0.45
         });
       });
     });

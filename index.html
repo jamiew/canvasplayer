@@ -434,6 +434,7 @@
     var layers = document.getElementById('layers');
 
     var player = null;
+    var wired = false;
     var scrubbing = false;
 
     var root = document.documentElement;
@@ -460,13 +461,11 @@
     });
 
     // ?id=154, ?latest or ?random, as it has always worked.
-    var search = document.location.search;
-    // default: KATSU
-    var tagId = (search.match(/id=(\d+)/) || [])[1] || (search.match(/latest|random/) || [])[0] || 161;
-
-    var current = document.getElementById('link-' + tagId);
-    if (current) current.setAttribute('aria-current', 'page');
-    status.textContent = 'Loading #' + tagId;
+    function tagFromUrl() {
+      var search = document.location.search;
+      // default: KATSU
+      return (search.match(/id=(\d+)/) || [])[1] || (search.match(/latest|random/) || [])[0] || 161;
+    }
 
     function pad(n) { return String(n).padStart(2, '0'); }
     function secs(t) { return pad(Math.floor(t)) + '.' + pad(Math.round((t % 1) * 100)); }
@@ -512,9 +511,17 @@
       });
     }
 
-    function start(data) {
+    function show(data) {
       status.hidden = true;
-      player = new GmlPlayer(canvas, data);
+      // The player is built once and re-fed after that, so the mode, effects
+      // and debug layers survive a change of tag.
+      if (player) {
+        player.pause();
+        player.load(data);
+        player.resize();
+      } else {
+        player = new GmlPlayer(canvas, data);
+      }
 
       readout.innerHTML =
         '<b>#' + data.id + '</b>' +
@@ -533,6 +540,13 @@
         mark.style.left = ((stroke.points[0][2] / player.duration) * 100).toFixed(2) + '%';
         ticks.appendChild(mark);
       });
+
+      if (wired) {
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) player.seek(player.duration);
+        else player.seek(0).play();
+        return;
+      }
+      wired = true;
 
       sync(modes, function (name) { return player.mode === name; });
       sync(effects, function (name) { return player.effects[name]; });
@@ -565,12 +579,35 @@
 
     // Nothing to undo on failure. The controls are still disabled from
     // build(), and the frame keeps its status.
-    GmlSource.load(tagId, function (data) {
-      if (data.strokes.length) start(data);
-      else status.textContent = '#' + tagId + ' has no stroke data';
-    }, function (err) {
-      status.textContent = err.message;
+    function go() {
+      var tagId = tagFromUrl();
+      document.querySelectorAll('#index a[aria-current]').forEach(function (a) {
+        a.removeAttribute('aria-current');
+      });
+      var current = document.getElementById('link-' + tagId);
+      if (current) current.setAttribute('aria-current', 'page');
+      status.hidden = false;
+      status.textContent = 'Loading #' + tagId;
+
+      GmlSource.load(tagId, function (data) {
+        if (data.strokes.length) show(data);
+        else status.textContent = '#' + tagId + ' has no stroke data';
+      }, function (err) {
+        status.textContent = err.message;
+      });
+    }
+
+    // Follow the tag links without a reload, so the controls keep their state.
+    document.querySelectorAll('#index a[href^="?"]').forEach(function (link) {
+      link.addEventListener('click', function (e) {
+        e.preventDefault();
+        history.pushState({}, '', link.getAttribute('href'));
+        go();
+      });
     });
+    window.addEventListener('popstate', go);
+
+    go();
   }());
   </script>
 
