@@ -73,9 +73,13 @@ It opens in marker, with ghost and the drips on.
 Runs of ink come from ranking each stroke's own samples slowest-first and
 taking a few of them, spaced apart. A fixed speed threshold does not survive
 contact with the archive: tag #158 never dropped under it and so never dripped
-at all, while a slow tag dripped from every sample. How long and how fat a run
-is follows how slowly the pen was moving where it started, which is as close to
-pressure as the capture gets, plus a stable wobble either side.
+at all, while a slow tag dripped from every sample.
+
+Paint runs when the wet film is thicker than the wall can hold, and the more of
+it there is, the further it gets. So one pool feeds both: how slowly the pen was
+moving and how long it sat there set how fat a run is and how far it falls, plus
+a stable wobble. Runs fall straight down. They may lean as they go, but only by
+a fraction of how far they have already fallen, because gravity is down.
 
 Effects reach the runs as well as the stroke, since a run is ink too: fade ages
 them, pressure lightens the fast ones, jitter moves them with the stroke they

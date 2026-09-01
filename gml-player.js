@@ -55,7 +55,9 @@
     // The head is a little fatter than the neck it hangs from, not a bead
     // dropped at the tip.
     dripHead: 1.45,
-    dripDrift: 0.02,
+    // How far a run may wander sideways, as a fraction of how far it has
+    // fallen. Gravity is down, so this can lean a run but never steer it.
+    dripDrift: 0.12,
 
     hairline: 1.5,
 
@@ -644,11 +646,13 @@
         var slow = 1 - clamp(stroke.speed[i] / self.peakSpeed, 0, 1);
         var pressure = Math.pow(slow, opts.dripPressure);
 
-        // Two independent draws, so a fat run is not automatically a long one.
-        // Stable, so the same tag drips the same way every time.
-        var varyLen = 1 + (noise(si * 17 + i, 5) - 0.5) * 2 * opts.dripVary;
-        var varyWide = 1 + (noise(si * 17 + i, 11) - 0.5) * 2 * opts.dripVary;
+        // A run is a pool of ink stretched thin, so one pool feeds both how
+        // fat it is and how far it gets: paint runs when the wet film beats
+        // what the wall can hold, and the more of it there is, the further it
+        // goes. Stable, so the same tag drips the same way every time.
         var dwell = pts[i][2] - pts[i - 1][2];
+        var pool = pressure * (1 + dwell * 4);
+        var vary = 1 + (noise(si * 17 + i, 5) - 0.5) * 2 * opts.dripVary;
 
         self.drips.push({
           si: si,
@@ -656,8 +660,8 @@
           speed: stroke.speed[i] || 0,
           x: pts[i][0],
           y: pts[i][1],
-          width: stroke.width[i] * (0.22 + pressure * 0.32) * varyWide,
-          length: clamp((0.008 + dwell * 0.55 + pressure * 0.05) * varyLen, 0.006, 0.12),
+          width: stroke.width[i] * (0.22 + pool * 0.3) * vary,
+          length: clamp((0.006 + pool * 0.085) * vary, 0.005, 0.11),
           born: pts[i][2],
           // Runs wander rather than falling dead straight.
           drift: (noise(si * 31 + i, 3) - 0.5) * 2,
@@ -713,7 +717,9 @@
       var x = self.px(d.x) + jx;
       var y0 = self.py(d.y) + jy;
       var y1 = self.py(d.y + len) + jy;
-      var drift = d.drift * opts.dripDrift * self.unit;
+      // A fraction of the fall, not a fixed offset. Sized against the frame it
+      // out-ran a short run and sent it sideways, which is not how gravity works.
+      var drift = d.drift * opts.dripDrift * (y1 - y0);
       // Stretching the same ink further leaves less of it across the neck.
       var half = (d.width * self.unit / 2) * (1 - opts.dripStretch * p);
 
