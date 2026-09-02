@@ -1,0 +1,34 @@
+{
+  "name": "canvasplayer",
+  "version": "6.0.0",
+  "description": "Graffiti Markup Language (GML) playback on <canvas>. Parses, repairs and draws tags from #000000book. No dependencies.",
+  "type": "module",
+  "exports": {
+    ".": "./gml-player.js",
+    "./gml": "./gml.js",
+    "./ui": "./gml-ui.js",
+    "./ui.css": "./gml-ui.css"
+  },
+  "files": [
+    "gml.js",
+    "gml-player.js",
+    "gml-ui.js",
+    "gml-ui.css"
+  ],
+  "scripts": {
+    "test": "node --test test.js",
+    "prepublishOnly": "node --test test.js"
+  },
+  "repository": "github:jamiew/canvasplayer",
+  "homepage": "https://jamiew.github.io/canvasplayer",
+  "keywords": [
+    "gml",
+    "graffiti",
+    "graffiti-markup-language",
+    "000000book",
+    "canvas",
+    "playback"
+  ],
+  "author": "Jamie Wilkinson (https://jamiedubs.com)",
+  "license": "Unlicense"
+}

@@ -11,6 +11,8 @@
   v4: dropped Processing.js, fixed the maths. Drips, tapered strokes, drawing
       modes, debug overlay
   v5: one fixed frame, orientation read from the drawing, light and dark
+  v6: ES modules on npm. Parsing, painting and the player pulled apart, so
+      each can be used on its own
 -->
 <html lang="en">
 <head>
@@ -31,6 +33,9 @@
         (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
     }());
   </script>
+
+  <!-- Before the page styles, so the page can override the controls. -->
+  <link rel="stylesheet" href="gml-ui.css">
 
   <style media="screen">
     :root {
@@ -98,7 +103,7 @@
     :root[data-theme="dark"] #theme .sun { opacity: 0; transform: rotate(90deg) scale(.5); }
     :root[data-theme="dark"] #theme .moon { opacity: 1; transform: none; }
 
-    body, .stage, button, .timeline .rail, .timeline .fill {
+    body, .stage, button, .gml-transport .rail, .gml-transport .fill {
       transition: background-color .2s ease, border-color .2s ease, color .2s ease;
     }
 
@@ -127,14 +132,13 @@
 
     /* --- layout ----------------------------------------------------------- */
 
-    /* Equal rails either side, so the frame lands on the page's centre line
-       and the masthead sits over it. The switches fill the right rail when
-       there is room, and drop under the frame when there is not. */
+    /* Equal fluid rails, so the frame lands on the page's center line at
+       every width and the masthead sits over it. The switches fill the right
+       rail when there is room, and drop under the frame when there is not.
+       Fixed rails overflowed and pushed the tag list off the left edge around
+       900px. */
     .layout {
       display: grid;
-      /* Equal fluid rails, so the frame lands on the page's centre line at
-         every width and the masthead sits over it. Fixed rails overflowed
-         and pushed the tag list off the left edge around 900px. */
       grid-template-columns: minmax(0, 1fr) var(--stage) minmax(0, 1fr);
       grid-template-areas: "index deck ." "index switches .";
       gap: 0 24px;
@@ -191,59 +195,7 @@
     }
     .stage .status[hidden] { display: none; }
 
-    /* --- transport -------------------------------------------------------- */
-
-    .transport { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
-
-    .transport button { min-width: 62px; }
-
-    /* Both glyphs live in the button. Hiding rather than fading the one that
-       is not the current state keeps the button from changing width. */
-    /* min-height matches the text buttons beside it, which a 12px glyph
-       plus padding falls a pixel short of. */
-    #play { display: grid; place-items: center; min-height: 25px; }
-    #play svg { width: 12px; height: 12px; }
-    #play .pause, #play[data-playing] .play { display: none; }
-    #play[data-playing] .pause { display: block; }
-
-    .clock {
-      font: 500 11px var(--sans);
-      font-variant-numeric: tabular-nums;
-      color: var(--mute);
-      white-space: nowrap;
-    }
-
-    /* Marks where each stroke begins. The range input stays the real control
-       and keeps its keyboard behaviour; the visuals sit underneath. */
-    .timeline { position: relative; flex: 1 1 auto; min-width: 0; height: 20px; }
-    .timeline .rail,
-    .timeline .fill { position: absolute; top: 9px; height: 2px; }
-    .timeline .rail { left: 0; right: 0; background: var(--rule); }
-    .timeline .fill { left: 0; width: 0; background: var(--ink); }
-    .timeline .ticks { position: absolute; inset: 0; pointer-events: none; }
-    .timeline .ticks i { position: absolute; top: 4px; width: 1px; height: 12px; background: var(--ink); opacity: 0.45; }
-
-    .timeline input {
-      position: absolute; inset: 0; width: 100%; height: 100%; margin: 0;
-      -webkit-appearance: none; appearance: none; background: none; cursor: pointer;
-    }
-    .timeline input::-webkit-slider-thumb {
-      -webkit-appearance: none; appearance: none;
-      width: 13px; height: 13px; border-radius: 50%;
-      background: var(--ink); border: 2px solid var(--paper); cursor: grab;
-    }
-    .timeline input::-moz-range-thumb {
-      width: 13px; height: 13px; border-radius: 50%;
-      background: var(--ink); border: 2px solid var(--paper); cursor: grab;
-    }
-    .timeline input::-moz-range-track { background: none; }
-
-    /* Sharing one row leaves the timeline about 60px on a phone, which is not
-       enough to scrub. It takes a row of its own, above the buttons. */
-    @media (max-width: 600px) {
-      .transport { flex-wrap: wrap; justify-content: space-between; gap: 10px 12px; }
-      .timeline { order: -1; flex: 1 0 100%; }
-    }
+    .transport { margin-top: 14px; }
 
     /* --- readout ---------------------------------------------------------- */
 
@@ -262,43 +214,18 @@
 
     /* --- switches --------------------------------------------------------- */
 
-    .switches { margin-top: 14px; display: grid; gap: 8px; }
-    /* 70px is INK MODE on one line, the widest of the three labels. */
-    .switch { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 12px; align-items: start; }
-    .switch .eyebrow { padding-top: 6px; }
-    .switch .set { display: flex; flex-wrap: wrap; gap: 8px 6px; }
+    .switches { margin-top: 14px; }
 
-    button {
-      font: 500 11px var(--sans);
-      padding: 5px 9px;
-      background: var(--paper);
-      color: var(--mute);
-      border: 1px solid var(--rule);
-      cursor: pointer;
-    }
-    button:hover:not(:disabled) { border-color: var(--ink); color: var(--ink); }
-    /* :not(:disabled) is for specificity, not state. Without it :hover wins
-       and a pressed button under the cursor goes black on black. */
-    .set button[aria-pressed="true"]:not(:disabled) { background: var(--ink); border-color: var(--ink); color: var(--paper); }
-    button:disabled { opacity: 0.4; cursor: default; }
-
-    /* Mode is one-of-many, so it joins into one control. Effects and debug
-       are independent, so they stay separate chips. */
-    .set.segmented { gap: 0; }
-    .set.segmented button + button { margin-left: -1px; }
-    .set.segmented button:hover:not(:disabled) { position: relative; z-index: 1; }
-
-    /* Must follow .set.segmented above, or that wins on equal specificity and
-       mode keeps its joined borders and zero row gap in the rail. */
+    /* In the rail there is room for a label above each row, and the mode
+       buttons wrap to four, where joined borders no longer read as one
+       control. The filled state carries it instead. */
     @media (min-width: 1000px) {
       .layout { grid-template-areas: "index deck switches"; }
       .switches { margin-top: 0; gap: 20px; }
-      .switch { grid-template-columns: minmax(0, 1fr); gap: 8px; }
-      .switch .eyebrow { padding-top: 0; }
-      /* Joined borders only read as one control on a single row, and mode
-         wraps to four in the rail. The filled state carries it instead. */
-      .set.segmented { gap: 8px 6px; }
-      .set.segmented button + button { margin-left: 0; }
+      .gml-switches .row { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+      .gml-switches .label { padding-top: 0; }
+      .gml-switches .segmented { gap: 8px 6px; }
+      .gml-switches .segmented button + button { margin-left: 0; }
     }
 
     /* --- footer ----------------------------------------------------------- */
@@ -329,7 +256,8 @@
       #index footer { margin-top: 10px; }
       #index ul a[aria-current]:after { display: none; }
       #index a[aria-current] { text-decoration: underline; }
-      .switch { gap: 10px; }
+      .switches { width: 100%; }
+      .gml-switches .row { gap: 10px; }
     }
   </style>
 </head>
@@ -380,48 +308,17 @@
         <canvas id="canvas"></canvas>
         <div class="status" id="status">Loading</div>
       </div>
-
-      <div class="transport">
-        <button id="play" type="button" disabled aria-label="Play">
-          <svg class="play" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <path d="M8 5.2v13.6L19 12z"/>
-          </svg>
-          <svg class="pause" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <path d="M7.6 5.2h3.4v13.6H7.6zM13 5.2h3.4v13.6H13z"/>
-          </svg>
-        </button>
-        <div class="timeline">
-          <div class="rail"></div>
-          <div class="fill" id="fill"></div>
-          <div class="ticks" id="ticks"></div>
-          <input id="scrub" type="range" min="0" max="1000" value="0" step="1"
-                 aria-label="Playback position" disabled>
-        </div>
-        <span class="clock" id="clock">00.00 / 00.00</span>
-        <button id="rate" type="button" disabled>1&times;</button>
-      </div>
-
+      <div class="transport" id="transport"></div>
       <div id="readout">&mdash;</div>
     </div>
 
-    <div class="switches">
-      <div class="switch">
-        <span class="eyebrow" id="lbl-mode">Ink mode</span>
-        <span class="set segmented" id="modes" role="group" aria-labelledby="lbl-mode"></span>
-      </div>
-      <div class="switch">
-        <span class="eyebrow" id="lbl-fx">Effects</span>
-        <span class="set" id="effects" role="group" aria-labelledby="lbl-fx"></span>
-      </div>
-      <div class="switch">
-        <span class="eyebrow" id="lbl-dbg">Data</span>
-        <span class="set" id="layers" role="group" aria-labelledby="lbl-dbg"></span>
-      </div>
-    </div>
+    <div class="switches" id="switches"></div>
   </div>
 
   <footer class="page">
     <a href="https://github.com/jamiew/canvasplayer">github.com/jamiew/canvasplayer</a>
+    <span class="sep">/</span>
+    <a href="https://www.npmjs.com/package/canvasplayer">npm</a>
     <span class="sep">/</span>
     <a href="http://fffff.at/gml-week-graffiti-markup-language/">intro</a>
     <span class="sep">/</span>
@@ -430,31 +327,55 @@
     <a href="https://000000book.com">data (#000000book)</a>
   </footer>
 
-  <script src="gml-player.js"></script>
-  <script src="gml-source.js"></script>
-  <script>
-  (function () {
-    var RATES = [0.25, 0.5, 1, 2, 4];
+  <script type="module">
+    import { parse } from './gml.js';
+    import { GmlPlayer } from './gml-player.js';
+    import { transport, switches, secs } from './gml-ui.js';
 
-    var canvas = document.getElementById('canvas');
-    var status = document.getElementById('status');
-    var scrub = document.getElementById('scrub');
-    var fill = document.getElementById('fill');
-    var ticks = document.getElementById('ticks');
-    var clock = document.getElementById('clock');
-    var readout = document.getElementById('readout');
-    var play = document.getElementById('play');
-    var rate = document.getElementById('rate');
-    var modes = document.getElementById('modes');
-    var effects = document.getElementById('effects');
-    var layers = document.getElementById('layers');
+    const API = 'https://000000book.com/data/';
+    let pending = 0;
 
-    var player = null;
-    var wired = false;
-    var scrubbing = false;
+    // Fetch by id, or "latest" or "random", which the API also answers to.
+    // Over JSONP: the API answers without an Access-Control-Allow-Origin
+    // header, so fetch cannot read the response.
+    function load(id) {
+      return new Promise((resolve, reject) => {
+        const name = '__gmlLoad' + (pending++);
+        const script = document.createElement('script');
+        const cleanup = () => { delete window[name]; script.remove(); };
 
-    var root = document.documentElement;
-    var theme = document.getElementById('theme');
+        window[name] = data => {
+          cleanup();
+          if (!data || !data.gml) reject(new Error('No GML in the response for ' + id));
+          else resolve(parse(data.gml, data.id || id));
+        };
+        script.onerror = () => {
+          cleanup();
+          // A script tag reports one undifferentiated error, so a missing
+          // tag and a dead network look the same here.
+          reject(new Error('Could not load tag ' + id + ' -- it may not exist'));
+        };
+        script.src = API + encodeURIComponent(id) + '.json?callback=' + name;
+        document.body.appendChild(script);
+      });
+    }
+
+    const status = document.getElementById('status');
+    const readout = document.getElementById('readout');
+
+    // One player, re-fed on every tag, so the mode, effects and data layers
+    // survive a change of tag. The controls are built once, here.
+    const player = new GmlPlayer(document.getElementById('canvas'));
+    transport(player, document.getElementById('transport'));
+    switches(player, document.getElementById('switches'));
+
+    const root = document.documentElement;
+    const theme = document.getElementById('theme');
+
+    // Private browsing makes localStorage throw rather than return nothing.
+    function savedTheme() {
+      try { return localStorage.getItem('theme'); } catch (e) { return null; }
+    }
 
     function setTheme(dark) {
       root.dataset.theme = dark ? 'dark' : 'light';
@@ -463,162 +384,64 @@
 
     setTheme(root.dataset.theme === 'dark');
 
-    theme.addEventListener('click', function () {
-      var dark = root.dataset.theme !== 'dark';
+    theme.addEventListener('click', () => {
+      const dark = root.dataset.theme !== 'dark';
       setTheme(dark);
       try { localStorage.setItem('theme', dark ? 'dark' : 'light'); } catch (e) {}
     });
 
     // Follow the system until the reader picks a side.
-    matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function (e) {
-      var saved = null;
-      try { saved = localStorage.getItem('theme'); } catch (err) {}
-      if (!saved) setTheme(e.matches);
+    matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+      if (!savedTheme()) setTheme(e.matches);
     });
 
-    // ?id=154, ?latest or ?random, as it has always worked.
+    const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    // ?id=154, ?latest or ?random, as it has always worked. Katsu by default.
     function tagFromUrl() {
-      var search = document.location.search;
-      // default: KATSU
+      const search = document.location.search;
       return (search.match(/id=(\d+)/) || [])[1] || (search.match(/latest|random/) || [])[0] || 161;
-    }
-
-    function pad(n) { return String(n).padStart(2, '0'); }
-    function secs(t) { return pad(Math.floor(t)) + '.' + pad(Math.round((t % 1) * 100)); }
-
-    /*
-     * Built and laid out before the tag arrives, enabled once it has. Building
-     * on load made three rows of buttons appear at once, shifting the page.
-     */
-    function build(host, names, opts) {
-      names.forEach(function (name) {
-        var button = document.createElement('button');
-        button.type = 'button';
-        button.textContent = name;
-        button.disabled = true;
-        button.setAttribute('aria-pressed', 'false');
-        button.addEventListener('click', function () {
-          if (opts.exclusive) {
-            opts.set(name);
-            host.querySelectorAll('button').forEach(function (other) {
-              other.setAttribute('aria-pressed', String(other === button));
-            });
-            return;
-          }
-          var on = button.getAttribute('aria-pressed') !== 'true';
-          opts.set(name, on);
-          button.setAttribute('aria-pressed', String(on));
-        });
-        host.appendChild(button);
-      });
-    }
-
-    build(modes, GmlPlayer.MODES, {
-      exclusive: true,
-      set: function (name) { player.setMode(name); }
-    });
-    build(effects, GmlPlayer.EFFECTS, { set: function (name, on) { player.setEffect(name, on); } });
-    build(layers, GmlPlayer.LAYERS, { set: function (name, on) { player.setLayer(name, on); } });
-
-    function sync(host, read) {
-      host.querySelectorAll('button').forEach(function (button) {
-        button.setAttribute('aria-pressed', String(!!read(button.textContent)));
-        button.disabled = false;
-      });
     }
 
     function show(data) {
       status.hidden = true;
-      // The player is built once and re-fed after that, so the mode, effects
-      // and debug layers survive a change of tag.
-      if (player) {
-        player.pause();
-        player.load(data);
-        player.resize();
-      } else {
-        player = new GmlPlayer(canvas, data);
-      }
+      player.pause().load(data);
 
+      const tag = player.tag;
       readout.innerHTML =
-        '<b>#' + data.id + '</b>' +
-        (data.app ? '<span class="sep">/</span>' + data.app : '') +
-        '<span class="sep">/</span>' + player.strokes.length +
-        (player.strokes.length === 1 ? ' stroke' : ' strokes') +
-        '<span class="sep">/</span>' + player.pointCount + ' pts' +
-        '<span class="sep">/</span>' + secs(player.duration) + 's' +
-        (data.rotate ? '<span class="sep">/</span>captured sideways' : '');
+        '<b>#' + tag.id + '</b>' +
+        (tag.app ? '<span class="sep">/</span>' + tag.app : '') +
+        '<span class="sep">/</span>' + tag.strokes.length +
+        (tag.strokes.length === 1 ? ' stroke' : ' strokes') +
+        '<span class="sep">/</span>' + tag.pointCount + ' pts' +
+        '<span class="sep">/</span>' + secs(tag.duration) + 's' +
+        (tag.rotate ? '<span class="sep">/</span>captured sideways' : '');
 
-      // A tick per stroke, so the timeline shows the shape of the tag.
-      ticks.innerHTML = '';
-      player.strokes.forEach(function (stroke, i) {
-        if (!i) return;
-        var mark = document.createElement('i');
-        mark.style.left = ((stroke.points[0][2] / player.duration) * 100).toFixed(2) + '%';
-        ticks.appendChild(mark);
-      });
-
-      if (wired) {
-        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) player.seek(player.duration);
-        else player.seek(0).play();
-        return;
-      }
-      wired = true;
-
-      sync(modes, function (name) { return player.mode === name; });
-      sync(effects, function (name) { return player.effects[name]; });
-      sync(layers, function (name) { return player.layers[name]; });
-      play.disabled = rate.disabled = scrub.disabled = false;
-
-      player.on('frame', function (s) {
-        var at = Math.min(s.time, s.duration) / s.duration;
-        if (!scrubbing) scrub.value = Math.round(at * 1000);
-        fill.style.width = (at * 100).toFixed(2) + '%';
-        clock.textContent = secs(Math.min(s.time, s.duration)) + ' / ' + secs(s.duration);
-      });
-      player.on('state', function (s) {
-        play.toggleAttribute('data-playing', s.playing);
-        play.setAttribute('aria-label', s.playing ? 'Pause' : 'Play');
-      });
-
-      play.addEventListener('click', function () { player.toggle(); });
-      scrub.addEventListener('input', function () {
-        scrubbing = true;
-        player.pause().seek((scrub.value / 1000) * player.duration);
-      });
-      scrub.addEventListener('change', function () { scrubbing = false; });
-      rate.addEventListener('click', function () {
-        var next = RATES[(RATES.indexOf(player.opts.speed) + 1) % RATES.length];
-        player.setSpeed(next);
-        rate.innerHTML = next + '&times;';
-      });
-
-      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) player.seek(player.duration);
+      if (still) player.seek(tag.duration);
       else player.play();
     }
 
-    // Nothing to undo on failure. The controls are still disabled from
-    // build(), and the frame keeps its status.
+    // Nothing to undo on failure: the frame keeps its status and the
+    // transport stays disabled.
     function go() {
-      var tagId = tagFromUrl();
-      document.querySelectorAll('#index a[aria-current]').forEach(function (a) {
-        a.removeAttribute('aria-current');
-      });
-      var current = document.getElementById('link-' + tagId);
+      const tagId = tagFromUrl();
+      document.querySelectorAll('#index a[aria-current]').forEach(a => a.removeAttribute('aria-current'));
+      const current = document.getElementById('link-' + tagId);
       if (current) current.setAttribute('aria-current', 'page');
       status.hidden = false;
       status.textContent = 'Loading #' + tagId;
 
-      GmlSource.load(tagId, function (data) {
+      load(tagId).then(data => {
         if (data.strokes.length) show(data);
         else status.textContent = '#' + tagId + ' has no stroke data';
-      }, function (err) {
+      }, err => {
         status.textContent = err.message;
       });
     }
 
     // Follow the tag links without a reload, so the controls keep their state.
-    document.querySelectorAll('#index a[href^="?"]').forEach(function (link) {
-      link.addEventListener('click', function (e) {
+    document.querySelectorAll('#index a[href^="?"]').forEach(link => {
+      link.addEventListener('click', e => {
         e.preventDefault();
         history.pushState({}, '', link.getAttribute('href'));
         go();
@@ -627,7 +450,6 @@
     window.addEventListener('popstate', go);
 
     go();
-  }());
   </script>
 
 </body>

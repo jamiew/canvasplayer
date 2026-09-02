@@ -1,0 +1,109 @@
+/*
+ * gml-ui.css -- structure for the controls gml-ui.js builds.
+ *
+ * Colors come from four custom properties on any ancestor, so the controls
+ * follow whatever theme the page has: --ink, --paper, --mute, --rule.
+ */
+
+.gml-transport button,
+.gml-switches button {
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: normal;
+  padding: 5px 9px;
+  background: var(--paper, #fff);
+  color: var(--mute, #6b6b6b);
+  border: 1px solid var(--rule, #d9d9d9);
+  cursor: pointer;
+}
+.gml-transport button:hover:not(:disabled),
+.gml-switches button:hover:not(:disabled) { border-color: var(--ink, #000); color: var(--ink, #000); }
+.gml-transport button:disabled,
+.gml-switches button:disabled { opacity: 0.4; cursor: default; }
+
+/* --- transport --------------------------------------------------------- */
+
+.gml-transport {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 12px;
+  container-type: inline-size;
+}
+
+.gml-transport button { min-width: 62px; }
+
+/* Both glyphs live in the button. Hiding rather than fading the one that
+   is not the current state keeps the button from changing width. */
+.gml-transport .play { display: grid; place-items: center; min-height: 25px; }
+.gml-transport .play svg { width: 12px; height: 12px; }
+.gml-transport .play .pause,
+.gml-transport .play[data-playing] .play { display: none; }
+.gml-transport .play[data-playing] .pause { display: block; }
+
+.gml-transport .clock {
+  font-size: 11px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--mute, #6b6b6b);
+  white-space: nowrap;
+}
+
+.gml-transport .timeline { position: relative; flex: 1 1 auto; min-width: 0; height: 20px; }
+.gml-transport .rail,
+.gml-transport .fill { position: absolute; top: 9px; height: 2px; }
+.gml-transport .rail { left: 0; right: 0; background: var(--rule, #d9d9d9); }
+.gml-transport .fill { left: 0; width: 0; background: var(--ink, #000); }
+.gml-transport .ticks { position: absolute; inset: 0; pointer-events: none; }
+.gml-transport .ticks i {
+  position: absolute; top: 4px; width: 1px; height: 12px;
+  background: var(--ink, #000); opacity: 0.45;
+}
+
+.gml-transport input[type="range"] {
+  position: absolute; inset: 0; width: 100%; height: 100%; margin: 0;
+  -webkit-appearance: none; appearance: none; background: none; cursor: pointer;
+}
+.gml-transport input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 13px; height: 13px; border-radius: 50%;
+  background: var(--ink, #000); border: 2px solid var(--paper, #fff); cursor: grab;
+}
+.gml-transport input[type="range"]::-moz-range-thumb {
+  width: 13px; height: 13px; border-radius: 50%;
+  background: var(--ink, #000); border: 2px solid var(--paper, #fff); cursor: grab;
+}
+.gml-transport input[type="range"]::-moz-range-track { background: none; }
+
+/* Sharing one row leaves the timeline too narrow to scrub in a small host.
+   It takes a row of its own, above the buttons. */
+@container (max-width: 480px) {
+  .gml-transport .timeline { order: -1; flex: 1 0 100%; }
+}
+
+/* --- switches ---------------------------------------------------------- */
+
+.gml-switches { display: grid; gap: 8px; }
+/* 70px is INK MODE on one line, the widest of the three labels. */
+.gml-switches .row { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 12px; align-items: start; }
+.gml-switches .label {
+  padding-top: 6px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--mute, #6b6b6b);
+}
+.gml-switches .set { display: flex; flex-wrap: wrap; gap: 8px 6px; }
+
+/* :not(:disabled) is for specificity, not state. Without it :hover wins
+   and a pressed button under the cursor goes black on black. */
+.gml-switches button[aria-pressed="true"]:not(:disabled) {
+  background: var(--ink, #000); border-color: var(--ink, #000); color: var(--paper, #fff);
+}
+
+.gml-switches .segmented { gap: 0; }
+.gml-switches .segmented button + button { margin-left: -1px; }
+.gml-switches .segmented button:hover:not(:disabled) { position: relative; z-index: 1; }
