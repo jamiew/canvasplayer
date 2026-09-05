@@ -574,6 +574,49 @@ function drawSpeedGraph(s, t) {
   ctx.restore();
 }
 
+/* --- ghost ------------------------------------------------------------- */
+
+/*
+ * A layer the size of the frame for the ghost to be drawn solid on, so
+ * paint() can lay it down once at ghostAlpha. Drawn straight onto the frame
+ * it was hundreds of translucent fills, and wherever two overlapped the
+ * alpha stacked. A marker stroke is a body and two cap discs, so every
+ * stroke ended in a dot twice as bright as its ghost, and so did every
+ * crossing.
+ *
+ * One layer per context, kept between frames and sized to the frame's own
+ * scale so it stays sharp on a dense screen. Null where nothing can make a
+ * canvas, which is Node without one; paint() then draws the ghost the old
+ * way.
+ */
+const ghosts = new WeakMap();
+
+function ghostLayer(ctx, w, h) {
+  let make;
+  if (typeof OffscreenCanvas !== 'undefined') make = () => new OffscreenCanvas(1, 1);
+  else if (typeof document !== 'undefined') make = () => document.createElement('canvas');
+  else return null;
+
+  const m = ctx.getTransform();
+  const pw = Math.max(1, Math.ceil(w * m.a));
+  const ph = Math.max(1, Math.ceil(h * m.d));
+
+  let layer = ghosts.get(ctx);
+  if (!layer) {
+    layer = make();
+    ghosts.set(ctx, layer);
+  }
+  if (layer.width !== pw || layer.height !== ph) {
+    layer.width = pw;
+    layer.height = ph;
+  }
+  const lctx = layer.getContext('2d');
+  lctx.setTransform(1, 0, 0, 1, 0, 0);
+  lctx.clearRect(0, 0, pw, ph);
+  lctx.setTransform(m.a, 0, 0, m.d, 0, 0);
+  return lctx;
+}
+
 /* --- frame ------------------------------------------------------------- */
 
 /*
@@ -616,8 +659,15 @@ export function paint(ctx, tag, frame) {
   // not age.
   if (layers.ink && effects.ghost) {
     const whole = tag.strokes.map(st => ({ count: st.points.length, partial: 0 }));
-    ctx.globalAlpha = opts.ghostAlpha;
-    drawInk(s, tag.duration, whole, false);
+    const layer = ghostLayer(ctx, frame.w, frame.h);
+    if (layer) {
+      drawInk({ ...s, ctx: layer }, tag.duration, whole, false);
+      ctx.globalAlpha = opts.ghostAlpha;
+      ctx.drawImage(layer.canvas, 0, 0, frame.w, frame.h);
+    } else {
+      ctx.globalAlpha = opts.ghostAlpha;
+      drawInk(s, tag.duration, whole, false);
+    }
     ctx.globalAlpha = 1;
   }
 

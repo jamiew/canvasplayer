@@ -14,7 +14,7 @@ not published yet.
 
 ## Decisions to confirm
 
-- Version is 6.0.0. v5 was the last version noted in index.html.
+- Version is 6.0.1. v5 was the last version noted in index.html.
 - The license field says Unlicense. The code says public domain, no rights
   reserved. Change it if you want CC0 instead.
 - The name `canvasplayer` is free on npm.

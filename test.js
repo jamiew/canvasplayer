@@ -18,6 +18,14 @@ function stubContext() {
   });
 }
 
+// A context that logs each drawing call with the alpha it was made at.
+function loggingContext(log) {
+  return new Proxy({ globalAlpha: 1, getTransform: () => ({ a: 2, d: 2 }) }, {
+    get: (t, k) => (k in t ? t[k] : () => log.push([k, t.globalAlpha])),
+    set: (t, k, v) => { t[k] = v; return true; }
+  });
+}
+
 function stubCanvas() {
   const ctx = stubContext();
   return {
@@ -248,6 +256,34 @@ describe('paint', () => {
 
   test('draws an empty tag', () => {
     paint(stubContext(), prepare({ strokes: [] }), { w: 100, h: 100 });
+  });
+
+  // Node has no canvas, so the tests above take the fallback. This stands a
+  // layer in to check the ghost goes down once, at one alpha.
+  test('lays the ghost down once, not as translucent fills that stack', () => {
+    const layers = [];
+    const onLayer = [];
+    globalThis.OffscreenCanvas = class {
+      constructor() { this.ctx = loggingContext(onLayer); this.ctx.canvas = this; layers.push(this); }
+      getContext() { return this.ctx; }
+    };
+    try {
+      const onFrame = [];
+      const ctx = loggingContext(onFrame);
+      const frame = { w: 400, h: 300, effects: { ghost: true }, layers: { ink: true }, opts: { ghostAlpha: 0.2 } };
+      paint(ctx, tag, frame);
+
+      const drawn = onFrame.filter(([k]) => k === 'fill' || k === 'stroke' || k === 'drawImage');
+      assert.deepEqual(drawn.filter(([k]) => k === 'drawImage').map(([, a]) => a), [0.2], 'one image at ghostAlpha');
+      assert.ok(drawn.every(([k, a]) => k === 'drawImage' || a === 1), 'the ink itself at full alpha');
+      assert.ok(onLayer.some(([k]) => k === 'fill'), 'the ghost was drawn on the layer');
+      assert.deepEqual([layers[0].width, layers[0].height], [800, 600], 'sized to the frame at its scale');
+
+      paint(ctx, tag, frame);
+      assert.equal(layers.length, 1, 'one layer per context, kept between frames');
+    } finally {
+      delete globalThis.OffscreenCanvas;
+    }
   });
 });
 
