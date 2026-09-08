@@ -13,6 +13,8 @@
   v5: one fixed frame, orientation read from the drawing, light and dark
   v6: ES modules on npm. Parsing, painting and the player pulled apart, so
       each can be used on its own
+  v6.1: time as depth, after Evan Roth's 3D fork of this player
+  v6.2: spray, outline, sketch and DynaDraw modes. Extrude and anaglyph
 -->
 <html lang="en">
 <head>
@@ -343,8 +345,10 @@
         const name = '__gmlLoad' + (pending++);
         const script = document.createElement('script');
         const cleanup = () => { delete window[name]; script.remove(); };
+        let answered = false;
 
         window[name] = data => {
+          answered = true;
           cleanup();
           if (!data || !data.gml) reject(new Error('No GML in the response for ' + id));
           else resolve(parse(data.gml, data.id || id));
@@ -354,6 +358,14 @@
           // A script tag reports one undifferentiated error, so a missing
           // tag and a dead network look the same here.
           reject(new Error('Could not load tag ' + id + ' -- it may not exist'));
+        };
+        // A script that runs without calling back fires neither handler, so
+        // the promise hung and the callback stayed on window for good. An
+        // error page served with a 200 does exactly that.
+        script.onload = () => {
+          if (answered) return;
+          cleanup();
+          reject(new Error('#' + id + ' did not answer with GML'));
         };
         script.src = API + encodeURIComponent(id) + '.json?callback=' + name;
         document.body.appendChild(script);

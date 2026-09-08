@@ -21,10 +21,10 @@ import { DEFAULTS as PREPARE, prepare, progress, noise, clamp, lerp } from './gm
 export const LAYERS = ['ink', 'drips', 'vectors', 'points', 'bounds', 'graph'];
 
 // How the ink itself is drawn. One at a time.
-export const MODES = ['marker', 'chisel', 'hairline', 'skeleton'];
+export const MODES = ['marker', 'chisel', 'spray', 'outline', 'sketch', 'dyna', 'hairline', 'skeleton'];
 
 // Combinable treatments applied on top of whichever mode is active.
-export const EFFECTS = ['ghost', 'bleed', 'jitter', 'fade'];
+export const EFFECTS = ['ghost', 'bleed', 'jitter', 'fade', 'depth', 'extrude', 'stereo', 'dust'];
 
 export const DEFAULTS = {
   ...PREPARE,
@@ -53,8 +53,117 @@ export const DEFAULTS = {
   // Points inserted per captured segment in marker mode.
   smoothSteps: 4,
 
+  /*
+   * Aerosol. What leaves a can is close enough to a Gaussian, so the ink
+   * lands as a scatter that is dense on the line and thins off the edge,
+   * with a soft band of overspray under it. Density follows the width the
+   * hand already earned, so a slow pass lays down more paint.
+   */
+  sprayDots: 17,
+  spraySpread: 0.8,
+  sprayDot: 0.95,
+  sprayHalo: 0.1,
+
+  /*
+   * Sketchy rendering: the line drawn more than once, each pass bowed off
+   * the true path, the way a hand never repeats itself exactly. After Wood
+   * et al.'s sketchy rendering for information visualization, by way of
+   * Handy and Rough.js.
+   */
+  sketchPasses: 2,
+  // Enough to see the hand wander, not enough to lose the letter. Past about
+  // 0.03 the two passes stop reading as one line and the tag comes apart.
+  sketchBow: 0.022,
+  // Samples per wave of the bow. Small numbers scribble, large ones drift.
+  sketchWave: 22,
+
+  /*
+   * A brush with mass, dragged along the captured path on a spring: what
+   * gets drawn is where the brush went, not where the hand did. It lags
+   * into a corner and coasts out of one, which is where the calligraphy
+   * comes from. Paul Haeberli's DynaDraw, 1989.
+   */
+  dynaMass: 1,
+  dynaSpring: 0.42,
+  dynaDrag: 0.55,
+  // How hard the brush's own speed thins the line. DynaDraw called it ductus.
+  dynaDuctus: 1.7,
+
+  /*
+   * The tag as an object rather than a mark: the drawing swept backwards
+   * into a solid body. With depth on it sweeps along the time axis, so the
+   * body is the tag's own history. Flat, it leans a fixed way, which is how
+   * a writer blocks out a 3D letter.
+   */
+  // Enough steps that the sweep closes into a face rather than banding into
+  // stripes, at an alpha low enough that the overlap does not go white.
+  extrudeSteps: 20,
+  extrudeDepth: 0.34,
+  extrudeLean: [-0.3, 0.25],
+  extrudeBack: 0.07,
+
+  /*
+   * Two eyes a little apart, one behind each filter of a pair of red and
+   * cyan glasses. Only means anything with depth on, because without it
+   * both eyes see the same flat drawing. Added rather than painted over, so
+   * where the two agree the ink comes back to white.
+   */
+  stereoEye: 0.12,
+  stereoLeft: '#ff3131',
+  stereoRight: '#31ffff',
+
+  /*
+   * Dust on a vector field. A grid of particles sits over the drawing; the
+   * moving head shoves the field around and the particles ride it, each one
+   * trailing a line back to where it started. Nothing is thrown away, so the
+   * fan of trails is a record of everywhere the hand has been.
+   *
+   * These are Evan Roth's numbers, from the 3D fork, kept as they were: the
+   * look is the point, and it is his.
+   */
+  dustCols: 144,
+  dustRows: 108,
+  dustMargin: 0.45,
+  dustReactivity: 11,
+  dustFriction: 3.2,
+  dustDecay: 0.9,
+  dustInjectScale: 2.75,
+  dustInjectRadius: 4,
+  dustInjectStrength: 0.32,
+  dustGravity: 0.9,
+  // Sub-pixel, so the dust reads as grain rather than a grid of squares.
+  dustDot: 0.0016,
+  dustAlpha: 1,
+  dustTrail: 0.8,
+  // Steps in the trail's fade. The trail runs bright at the particle to
+  // nothing at its origin, and canvas has no per-vertex color, so it is
+  // drawn as a few batched passes instead of one gradient each.
+  dustTrailSteps: 3,
+  // The dust field is about twice the size of the tag, so with it on the
+  // drawing has to sit back to leave the field somewhere to be. Without
+  // this the tag fills the frame and all its dust blows off the edges.
+  dustFit: 0.55,
+
   // Breathing room around the drawing, as a fraction of the frame.
   pad: 0.08,
+
+  // Time as depth. How far the tag reaches front to back, as a multiple of
+  // its own on-screen size, and how far off the camera sits.
+  depthSpan: 0.85,
+  depthDist: 3.2,
+  // The drawing shrinks to leave room to turn in. Side on, a tag is as wide
+  // as it is deep, and the near end is magnified on top of that; without the
+  // shrink it runs off the frame every time the camera comes round.
+  depthZoom: 0.84,
+  // Radians per second of playback, so the turn keeps time with the speed
+  // control rather than running at its own pace. A full turn takes about a
+  // minute: fast enough to read as depth, slow enough to read the tag.
+  autoRotate: 0.12,
+  // Off dead ahead to start with, or the first seconds of a tag look flat
+  // and the whole effect arrives late.
+  depthPitch: -0.2,
+  orbitSpeed: 0.01,
+  zoomSpeed: 0.0015,
 
   color: '#ffffff',
   background: '#000000',
@@ -86,6 +195,10 @@ function jitterAmount(s) {
 // One shared pair, so jitter switched off costs nothing per sample.
 const STILL = [0, 0];
 
+// Likewise for the extrude sweep: one object, so the common case reads zeros
+// rather than branching on every sample.
+const NO_OFFSET = { dx: 0, dy: 0, dt: 0 };
+
 function jitterAt(amount, si, i) {
   if (!amount) return STILL;
   return [(noise(si * 91 + i, 7) - 0.5) * amount, (noise(si * 91 + i, 13) - 0.5) * amount];
@@ -113,7 +226,73 @@ export function fit(bounds, w, h, pad = DEFAULTS.pad) {
     // Widths follow the artwork's on-screen size, not the frame's.
     unit: Math.sqrt(bw * scale * bh * scale),
     x: v => ox + v * scale,
-    y: v => oy + v * scale
+    y: v => oy + v * scale,
+    // Flat, so time is not a direction and every sample is the same size.
+    // The third value is depth, the fourth what perspective does to width.
+    at: (x, y) => [ox + x * scale, oy + y * scale, 0, 1],
+    behind: false
+  };
+}
+
+/*
+ * The same drawing with time as depth: a sample's z is when it was written,
+ * so a tag has real thickness and the camera can look along the writing
+ * instead of at it. A tag drawn in one pass reads as a single sheet; one
+ * built up in layers pulls apart into them.
+ *
+ * The idea is from Evan Roth's Graffiti Analysis, by way of his 3D fork of
+ * this player. That fork reached for WebGL. It does not need to: a tag is a
+ * few thousand points, and projecting them by hand costs nothing and keeps
+ * every ink mode, effect and drip working exactly as it does flat.
+ *
+ * Straight ahead this is the flat fit shrunk by `depthZoom`, so switching
+ * depth on does not move the drawing, only pulls it back. Samples nearer the
+ * camera are drawn wider, which is what makes the perspective read.
+ */
+export function orbit(view, duration, camera, opts) {
+  const ca = Math.cos(camera.yaw);
+  const sa = Math.sin(camera.yaw);
+  const cp = Math.cos(camera.pitch);
+  const sp = Math.sin(camera.pitch);
+
+  // Depth is measured against the artwork's own on-screen size, not the
+  // capture space it sits in. Against the capture space, a tag written in
+  // one corner got the same depth as one that filled the screen, and swung
+  // clean out of the frame the moment the camera came off axis.
+  const span = view.unit;
+  const eye = camera.dist * span;
+  const zoom = opts.depthZoom;
+  const midX = view.w / 2;
+  const midY = view.h / 2;
+
+  return {
+    ...view,
+
+    // Whether later strokes now sit further away. If they do the painter has
+    // to lay them down first, or the tag draws itself inside out.
+    behind: ca * cp > 0,
+
+    at(x, y, t) {
+      // Offsets from the middle of the fitted drawing, which is where the
+      // camera looks. Canvas y runs down and so does capture y, so the two
+      // agree and nothing needs flipping.
+      const px = view.x(x) - midX;
+      const py = view.y(y) - midY;
+      const pz = (t / duration - 0.5) * opts.depthSpan * span;
+
+      // Yaw about the vertical axis, then pitch about the horizontal one.
+      const rx = px * ca + pz * sa;
+      const rz = pz * ca - px * sa;
+      const ry = py * cp - rz * sp;
+      const ez = py * sp + rz * cp + eye;
+
+      // Behind the lens, where the projection turns inside out. Park it on
+      // the vanishing point at no width rather than draw it mirrored.
+      if (ez <= 1e-3) return [midX, midY, ez, 0];
+
+      const k = (eye / ez) * zoom;
+      return [midX + rx * k, midY + ry * k, ez, k];
+    }
   };
 }
 
@@ -131,18 +310,22 @@ function path(s, stroke, si, from, to, partial, spread) {
   const out = [];
   const jitter = jitterAmount(s);
 
+  // Where this pass sits relative to the drawing itself. Only extrude moves
+  // it, and then only to sweep the same ink backwards into a body.
+  const off = s.offset || NO_OFFSET;
+
   for (let i = from; i < to; i++) {
     const [jx, jy] = jitterAt(jitter, si, i);
-    out.push([view.x(pts[i][0]) + jx, view.y(pts[i][1]) + jy, stroke.width[i] * view.unit * spread]);
+    // Depth widens what is near and narrows what is far, on top of the width
+    // speed already gave the sample.
+    const [x, y, , k] = view.at(pts[i][0], pts[i][1], pts[i][2] + off.dt);
+    out.push([x + jx + off.dx, y + jy + off.dy, stroke.width[i] * view.unit * spread * k]);
   }
   if (partial > 0 && to < pts.length && to > from) {
     const a = pts[to - 1];
     const b = pts[to];
-    out.push([
-      view.x(lerp(a[0], b[0], partial)),
-      view.y(lerp(a[1], b[1], partial)),
-      lerp(stroke.width[to - 1], stroke.width[to], partial) * view.unit * spread
-    ]);
+    const [x, y, , k] = view.at(lerp(a[0], b[0], partial), lerp(a[1], b[1], partial), lerp(a[2], b[2], partial) + off.dt);
+    out.push([x + off.dx, y + off.dy, lerp(stroke.width[to - 1], stroke.width[to], partial) * view.unit * spread * k]);
   }
   return out;
 }
@@ -194,13 +377,13 @@ function normal(path, i) {
  * along the normal, then back down the other side. That taper is not
  * possible with a per-segment lineWidth.
  */
-function ribbon(ctx, path) {
+function ribbon(ctx, path, outline) {
   if (!path.length) return;
 
   if (path.length === 1) {
     ctx.beginPath();
     ctx.arc(path[0][0], path[0][1], path[0][2] / 2, 0, TAU);
-    ctx.fill();
+    if (outline) ctx.stroke(); else ctx.fill();
     return;
   }
 
@@ -217,6 +400,14 @@ function ribbon(ctx, path) {
   for (let i = 1; i < left.length; i++) ctx.lineTo(left[i][0], left[i][1]);
   for (let i = right.length - 1; i >= 0; i--) ctx.lineTo(right[i][0], right[i][1]);
   ctx.closePath();
+
+  // Outline mode draws only the silhouette, which is the shape a writer
+  // lays down first and fills afterwards. It wants no cap discs: they would
+  // ring every stroke end with a circle instead of closing it.
+  if (outline) {
+    ctx.stroke();
+    return;
+  }
   ctx.fill();
 
   // Caps as discs, not arcs spliced into the outline. An arc picks its
@@ -281,6 +472,117 @@ function chisel(s, path, spread) {
   ctx.fill();
 }
 
+/*
+ * Aerosol.
+ *
+ * A can throws paint in a cone, so what reaches the wall is a Gaussian: a
+ * dense core falling off to nothing. This scatters dots on that curve, using
+ * the same stable noise as everything else so a tag sprays the same way on
+ * every repaint, then unions them in one fill. Union, not stacking: a dot
+ * landing on wet paint does not double its darkness, and density reads as
+ * coverage, which is what an aerosol actually does.
+ */
+function spray(s, p, spread) {
+  const { ctx, opts } = s;
+  const base = ctx.globalAlpha;
+
+  // Overspray first, as a soft band for the grit to sit on.
+  ctx.globalAlpha = base * opts.sprayHalo;
+  ctx.beginPath();
+  for (let i = 0; i < p.length; i++) {
+    const r = p[i][2] * 0.75;
+    ctx.moveTo(p[i][0] + r, p[i][1]);
+    ctx.arc(p[i][0], p[i][1], r, 0, TAU);
+  }
+  ctx.fill();
+
+  ctx.globalAlpha = base;
+  const dot = opts.sprayDot * Math.max(spread, 1);
+  ctx.beginPath();
+  for (let i = 0; i < p.length; i++) {
+    const half = p[i][2] / 2;
+    for (let k = 0; k < opts.sprayDots; k++) {
+      // Box-Muller, so the scatter is Gaussian rather than a flat disc.
+      const u = Math.max(noise(i * 131 + k, 21), 1e-6);
+      const a = noise(i * 131 + k, 37) * TAU;
+      const r = Math.sqrt(-2 * Math.log(u)) * opts.spraySpread * half * spread;
+      const x = p[i][0] + Math.cos(a) * r;
+      const y = p[i][1] + Math.sin(a) * r;
+      ctx.moveTo(x + dot, y);
+      ctx.arc(x, y, dot, 0, TAU);
+    }
+  }
+  ctx.fill();
+}
+
+/*
+ * The line drawn more than once, each pass wandering off the true path.
+ *
+ * The wander is a slow wave with a little grain on top, not white noise: a
+ * hand drifts away from a line and comes back, it does not vibrate. Each
+ * pass carries its own seed, so the two strokes part company and meet again
+ * the way a pen's do.
+ */
+function sketch(s, p, spread) {
+  const { ctx, opts, view } = s;
+  const amp = opts.sketchBow * view.unit * spread;
+
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  for (let pass = 0; pass < opts.sketchPasses; pass++) {
+    ctx.lineWidth = Math.max(opts.hairline * spread, 0.5);
+    ctx.beginPath();
+    for (let i = 0; i < p.length; i++) {
+      const t = i / opts.sketchWave;
+      const lo = Math.floor(t);
+      const f = t - lo;
+      const seed = 51 + pass * 13;
+      // Smoothstep between noise samples, so the bow is a wave, not a jump.
+      const bow = lerp(noise(lo, seed), noise(lo + 1, seed), f * f * (3 - 2 * f)) - 0.5;
+      const grain = noise(i, seed + 5) - 0.5;
+      const [nx, ny] = normal(p, i);
+      const len = Math.hypot(nx, ny) || 1;
+      const off = (bow * 2 + grain * 0.3) * amp;
+      const x = p[i][0] + (nx / len) * off;
+      const y = p[i][1] + (ny / len) * off;
+      if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+    }
+    ctx.stroke();
+  }
+}
+
+/*
+ * Haeberli's filtered pen: a brush with mass on a spring, towed along the
+ * captured path. What gets drawn is the brush's path, not the hand's.
+ *
+ * Hooke's law toward each sample, integrated with drag, exactly as DynaDraw
+ * did it in 1989. The brush cuts the inside of a corner and coasts past the
+ * end of a fast stroke, and the width comes off the brush's own speed rather
+ * than the hand's, so the line swells and thins on its own account.
+ *
+ * The filter only ever looks backwards, so the part of a stroke already on
+ * screen never changes as the rest of it arrives.
+ */
+function dyna(s, p) {
+  const { opts } = s;
+  if (p.length < 2) return p;
+
+  const out = [];
+  let x = p[0][0];
+  let y = p[0][1];
+  let vx = 0;
+  let vy = 0;
+  for (let i = 0; i < p.length; i++) {
+    vx = (vx + (p[i][0] - x) * opts.dynaSpring / opts.dynaMass) * opts.dynaDrag;
+    vy = (vy + (p[i][1] - y) * opts.dynaSpring / opts.dynaMass) * opts.dynaDrag;
+    x += vx;
+    y += vy;
+    const speed = Math.hypot(vx, vy);
+    out.push([x, y, Math.max(p[i][2] - speed * opts.dynaDuctus, p[i][2] * 0.15)]);
+  }
+  return out;
+}
+
 /* Centerline plus width ticks: the ribbon drawn as a technical diagram. */
 function skeleton(ctx, path, spread) {
   polyline(ctx, path, spread);
@@ -299,6 +601,13 @@ function drawStroke(s, stroke, si, from, to, partial, spread) {
 
   switch (s.mode) {
     case 'chisel': return chisel(s, p, spread);
+    case 'spray': return spray(s, p, spread);
+    case 'outline':
+      s.ctx.lineWidth = Math.max(s.opts.hairline * spread, 0.5);
+      s.ctx.lineJoin = 'round';
+      return ribbon(s.ctx, smooth(p, s.opts.smoothSteps), true);
+    case 'sketch': return sketch(s, p, spread);
+    case 'dyna': return ribbon(s.ctx, dyna(s, smooth(p, 2)));
     case 'hairline': return polyline(s.ctx, p, s.opts.hairline * spread);
     case 'skeleton': return skeleton(s.ctx, p, spread);
     // marker: a spline through the samples, so a slow hand does not staircase.
@@ -313,10 +622,16 @@ function drawStroke(s, stroke, si, from, to, partial, spread) {
 function drawInk(s, t, prog, fade) {
   const { ctx, opts } = s;
   const base = ctx.globalAlpha;
+  const strokes = s.tag.strokes;
+  const n = strokes.length;
 
-  s.tag.strokes.forEach((stroke, si) => {
+  for (let k = 0; k < n; k++) {
+    // Painter's algorithm, and z is time, so the strokes are already sorted:
+    // reversing them is the whole of it when the camera is round the back.
+    const si = s.view.behind ? n - 1 - k : k;
+    const stroke = strokes[si];
     const p = prog[si];
-    if (!p.count) return;
+    if (!p.count) continue;
     const draw = (from, to, partial, spread) => drawStroke(s, stroke, si, from, to, partial, spread);
 
     ctx.fillStyle = opts.color;
@@ -333,7 +648,7 @@ function drawInk(s, t, prog, fade) {
 
     if (!fade) {
       draw(0, p.count, p.partial, 1);
-      return;
+      continue;
     }
 
     // Slices overlap by one sample so the joins do not show as gaps.
@@ -347,7 +662,7 @@ function drawInk(s, t, prog, fade) {
       draw(from, to, to === p.count ? p.partial : 0, 1);
     }
     ctx.globalAlpha = base;
-  });
+  }
 }
 
 /*
@@ -381,31 +696,52 @@ function drawDrips(s, t) {
     const alpha = effects.fade ? clamp(1 - age / opts.fadeWindow, 0.04, 1) : 1;
 
     const [jx, jy] = jitterAt(jitter, d.si, d.i);
-    const x = view.x(d.x) + jx;
-    const y0 = view.y(d.y) + jy;
-    const y1 = view.y(d.y + len) + jy;
+    // A run hangs in the plane of the moment it started, so both ends carry
+    // the same time, and it falls straight down in the drawing, whichever
+    // way that points once the camera has turned. Both ends take the
+    // sample's own jitter too, or the run comes away from its stroke.
+    const [px, py, , k0] = view.at(d.x, d.y, d.born);
+    const [qx, qy] = view.at(d.x, d.y + len, d.born);
+    const x0 = px + jx;
+    const y0 = py + jy;
+    const fx = qx - px;
+    const fy = qy - py;
+    const fall = Math.hypot(fx, fy);
+    if (fall < 1e-3) return;
+    // Across the fall. The run's width lies along this, and it wanders the
+    // other way, which is the side the flat player always leaned to.
+    const ax = -fy / fall;
+    const ay = fx / fall;
+
     // A fraction of the fall, not a fixed offset. Sized against the frame it
     // out-ran a short run and sent it sideways, which is not how gravity works.
-    const drift = d.drift * opts.dripDrift * (y1 - y0);
+    const drift = -d.drift * opts.dripDrift * fall;
     // Stretching the same ink further leaves less of it across the neck.
-    const half = (d.width * view.unit / 2) * (1 - opts.dripStretch * p);
+    const half = (d.width * view.unit / 2) * (1 - opts.dripStretch * p) * k0;
 
     const run = (spread, soak) => {
       ctx.globalAlpha = base * alpha * soak;
       const wide = half * spread;
       const point = k => {
         const f = k / DRIP_STEPS;
-        return { x: x + drift * f * f, y: lerp(y0, y1, f), half: wide * (1 - opts.dripTaper * f) };
+        const off = drift * f * f;
+        return {
+          x: x0 + fx * f + ax * off,
+          y: y0 + fy * f + ay * off,
+          half: wide * (1 - opts.dripTaper * f)
+        };
       };
       const head = point(DRIP_STEPS);
+      const across = Math.atan2(ay, ax);
 
       ctx.beginPath();
-      ctx.moveTo(x - wide, y0);
-      for (let k = 1; k <= DRIP_STEPS; k++) { const l = point(k); ctx.lineTo(l.x - l.half, l.y); }
-      // The head closes the shape, so it cannot detach from the neck.
-      ctx.arc(head.x, head.y, head.half * opts.dripHead, Math.PI, 0, true);
-      for (let k = DRIP_STEPS; k >= 1; k--) { const r = point(k); ctx.lineTo(r.x + r.half, r.y); }
-      ctx.lineTo(x + wide, y0);
+      ctx.moveTo(x0 + ax * wide, y0 + ay * wide);
+      for (let k = 1; k <= DRIP_STEPS; k++) { const l = point(k); ctx.lineTo(l.x + ax * l.half, l.y + ay * l.half); }
+      // The head closes the shape, so it cannot detach from the neck. Half a
+      // turn about the fall, so it caps the end rather than cutting it.
+      ctx.arc(head.x, head.y, head.half * opts.dripHead, across, across - Math.PI, true);
+      for (let k = DRIP_STEPS; k >= 1; k--) { const r = point(k); ctx.lineTo(r.x - ax * r.half, r.y - ay * r.half); }
+      ctx.lineTo(x0 - ax * wide, y0 - ay * wide);
       ctx.closePath();
       ctx.fill();
     };
@@ -417,6 +753,212 @@ function drawDrips(s, t) {
   ctx.globalAlpha = base;
 }
 
+/* --- dust -------------------------------------------------------------- */
+
+/*
+ * A field of dust the drawing pushes around, after Evan Roth's 3D fork.
+ *
+ * Particles start on a regular grid over the tag and stay put until the
+ * drawing head passes. The head's own motion is injected into a coarse
+ * velocity field, the particles read whichever cell they are standing in,
+ * and the field decays. Once a particle has moved it is awake for good, and
+ * remembers the moment it woke: that is the depth it hangs at, so the dust
+ * has the same thickness in time the tag does.
+ *
+ * This is a simulation, so it cannot live inside paint(), which has to stay
+ * a pure function of the clock. The player owns one of these, steps it, and
+ * hands it to paint() to draw. Seeking or looping resets it, because there
+ * is no way to run a field like this backwards.
+ */
+export class Dust {
+  constructor(tag, options) {
+    const opts = { ...DEFAULTS, ...options };
+    const b = tag.bounds;
+    const side = Math.max(b.x1 - b.x0, b.y1 - b.y0, 1e-3) * (1 + opts.dustMargin * 2);
+
+    this.opts = opts;
+    this.tag = tag;
+    // Not a square grid over a square field: the cells are wider than they
+    // are tall, so the dust answers a sideways push harder than an upward
+    // one. That lean is the fork's, and taking it out stands the fan up.
+    this.cols = opts.dustCols;
+    this.rows = opts.dustRows;
+    this.cw = side / this.cols;
+    this.ch = side / this.rows;
+    this.x0 = (b.x0 + b.x1) / 2 - side / 2;
+    this.y0 = (b.y0 + b.y1) / 2 - side / 2;
+
+    const count = this.cols * this.rows;
+    this.count = count;
+    this.posX = new Float32Array(count);
+    this.posY = new Float32Array(count);
+    this.oriX = new Float32Array(count);
+    this.oriY = new Float32Array(count);
+    this.velX = new Float32Array(count);
+    this.velY = new Float32Array(count);
+    this.woke = new Uint8Array(count);
+    this.wokeAt = new Float32Array(count);
+    this.fieldX = new Float32Array(count);
+    this.fieldY = new Float32Array(count);
+    this.live = 0;
+    this.reset();
+  }
+
+  reset() {
+    for (let j = 0; j < this.rows; j++) {
+      for (let i = 0; i < this.cols; i++) {
+        const k = j * this.cols + i;
+        this.posX[k] = this.oriX[k] = this.x0 + (i + 0.5) * this.cw;
+        this.posY[k] = this.oriY[k] = this.y0 + (j + 0.5) * this.ch;
+      }
+    }
+    this.velX.fill(0);
+    this.velY.fill(0);
+    this.woke.fill(0);
+    this.wokeAt.fill(0);
+    this.fieldX.fill(0);
+    this.fieldY.fill(0);
+    this.last = null;
+    this.live = 0;
+    return this;
+  }
+
+  // The head's own motion goes into the field as velocity, falling off with
+  // distance, over a few cells around wherever it is.
+  inject(x, y) {
+    if (!this.last) { this.last = [x, y]; return; }
+    const dx = x - this.last[0];
+    const dy = y - this.last[1];
+    this.last = [x, y];
+    if (Math.abs(dx) < 1e-6 && Math.abs(dy) < 1e-6) return;
+
+    const opts = this.opts;
+    const cx = (x - this.x0) / this.cw;
+    const cy = (y - this.y0) / this.ch;
+    const vx = (dx / this.cw) * opts.dustInjectScale;
+    const vy = (dy / this.ch) * opts.dustInjectScale;
+    const R = opts.dustInjectRadius;
+
+    const iMin = Math.max(0, Math.floor(cx - R));
+    const iMax = Math.min(this.cols - 1, Math.ceil(cx + R));
+    const jMin = Math.max(0, Math.floor(cy - R));
+    const jMax = Math.min(this.rows - 1, Math.ceil(cy + R));
+    for (let j = jMin; j <= jMax; j++) {
+      for (let i = iMin; i <= iMax; i++) {
+        const d = Math.hypot(i - cx, j - cy);
+        if (d >= R) continue;
+        const w = opts.dustInjectStrength * (1 - d / R);
+        const k = j * this.cols + i;
+        this.fieldX[k] += vx * w;
+        this.fieldY[k] += vy * w;
+      }
+    }
+  }
+
+  step(dt, t) {
+    const opts = this.opts;
+    const head = Math.min(t, this.tag.duration);
+
+    // Whichever stroke is being written now, and where along it. Later
+    // strokes first, so an overlap resolves to the one on top.
+    if (t <= this.tag.duration) {
+      const strokes = this.tag.strokes;
+      for (let si = strokes.length - 1; si >= 0; si--) {
+        const pts = strokes[si].points;
+        if (pts[0][2] <= head && head <= pts[pts.length - 1][2]) {
+          let i = 0;
+          while (i < pts.length - 1 && pts[i + 1][2] < head) i++;
+          this.inject(pts[i][0], pts[i][1]);
+          break;
+        }
+      }
+    }
+
+    // Past the end the field lets go and what is airborne falls.
+    const g = t > this.tag.duration ? opts.dustGravity * dt : 0;
+    const drag = Math.min(1, opts.dustFriction * dt);
+    const push = opts.dustReactivity * dt;
+    let live = 0;
+
+    for (let k = 0; k < this.count; k++) {
+      if (!this.woke[k] && (this.posX[k] !== this.oriX[k] || this.posY[k] !== this.oriY[k])) {
+        this.woke[k] = 1;
+        this.wokeAt[k] = head;
+      }
+      let ci = ((this.posX[k] - this.x0) / this.cw) | 0;
+      let cj = ((this.posY[k] - this.y0) / this.ch) | 0;
+      ci = ci < 0 ? 0 : ci >= this.cols ? this.cols - 1 : ci;
+      cj = cj < 0 ? 0 : cj >= this.rows ? this.rows - 1 : cj;
+      const c = cj * this.cols + ci;
+
+      this.velX[k] += this.fieldX[c] * push;
+      this.velY[k] += this.fieldY[c] * push;
+      if (g && this.woke[k]) this.velY[k] += g;
+      this.velX[k] -= this.velX[k] * drag;
+      this.velY[k] -= this.velY[k] * drag;
+      this.posX[k] += this.velX[k] * dt;
+      this.posY[k] += this.velY[k] * dt;
+      if (this.woke[k]) live++;
+    }
+
+    for (let k = 0; k < this.count; k++) {
+      this.fieldX[k] *= opts.dustDecay;
+      this.fieldY[k] *= opts.dustDecay;
+    }
+    this.live = live;
+    return this;
+  }
+}
+
+/*
+ * Dust and its trails, added rather than painted over, so crossings pile up
+ * into the bright core the fork's additive blending gives.
+ *
+ * Canvas cannot shade one line from bright to nothing, so a trail is drawn
+ * as a few batched passes: the whole length faintest, then shorter and
+ * shorter pieces nearest the particle, each a little brighter. Two paths per
+ * pass rather than a gradient per particle, which is what keeps 15,000 of
+ * them inside a frame.
+ */
+function drawDust(s, dust, fade) {
+  const { ctx, opts, view } = s;
+  if (!dust || !dust.live) return;
+
+  const steps = Math.max(1, Math.round(opts.dustTrailSteps));
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.strokeStyle = opts.color;
+  ctx.fillStyle = opts.color;
+  ctx.lineWidth = 1;
+
+  for (let pass = 0; pass < steps; pass++) {
+    // Pass 0 is the whole trail, the last is just the tip.
+    const from = pass / steps;
+    ctx.globalAlpha = (opts.dustTrail / steps) * fade;
+    ctx.beginPath();
+    for (let k = 0; k < dust.count; k++) {
+      if (!dust.woke[k]) continue;
+      const z = dust.wokeAt[k];
+      const [px, py] = view.at(dust.posX[k], dust.posY[k], z);
+      const [ox, oy] = view.at(dust.oriX[k], dust.oriY[k], z);
+      ctx.moveTo(lerp(ox, px, from), lerp(oy, py, from));
+      ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+  }
+
+  ctx.globalAlpha = opts.dustAlpha * fade;
+  ctx.beginPath();
+  for (let k = 0; k < dust.count; k++) {
+    if (!dust.woke[k]) continue;
+    const [px, py, , scale] = view.at(dust.posX[k], dust.posY[k], dust.wokeAt[k]);
+    const r = Math.max(opts.dustDot * view.unit * scale, 0.6);
+    ctx.rect(px - r, py - r, r * 2, r * 2);
+  }
+  ctx.fill();
+  ctx.restore();
+}
+
 /* --- data layers ------------------------------------------------------- */
 
 function drawBounds(s) {
@@ -424,29 +966,47 @@ function drawBounds(s) {
   ctx.save();
   ctx.lineWidth = 1;
 
+  // The capture screen has no moment of its own, so with depth on it sits at
+  // the middle of the tag's time and the writing passes through it.
+  const mid = s.tag.duration / 2;
+  const P = (x, y) => view.at(x, y, mid);
+  const line = (x0, y0, x1, y1) => {
+    const a = P(x0, y0);
+    const b = P(x1, y1);
+    ctx.moveTo(a[0], a[1]);
+    ctx.lineTo(b[0], b[1]);
+  };
+  // A projected rectangle is still four straight edges, but only the corners
+  // land where strokeRect would put them.
+  const box = (x0, y0, x1, y1) => {
+    ctx.beginPath();
+    line(x0, y0, x1, y0);
+    line(x1, y0, x1, y1);
+    line(x1, y1, x0, y1);
+    line(x0, y1, x0, y0);
+    ctx.stroke();
+  };
+
   // Normalized capture space, ticked every 0.1.
   ctx.strokeStyle = 'rgba(255,255,255,0.07)';
   ctx.beginPath();
   for (let i = 0; i <= 10; i++) {
     const g = i / 10;
-    ctx.moveTo(view.x(g), view.y(0));
-    ctx.lineTo(view.x(g), view.y(1));
-    ctx.moveTo(view.x(0), view.y(g));
-    ctx.lineTo(view.x(1), view.y(g));
+    line(g, 0, g, 1);
+    line(0, g, 1, g);
   }
   ctx.stroke();
 
   // The capture screen itself.
   ctx.strokeStyle = 'rgba(255,255,255,0.24)';
   ctx.setLineDash([2, 3]);
-  ctx.strokeRect(view.x(0), view.y(0), view.scale, view.scale);
-  ctx.setLineDash([]);
+  box(0, 0, 1, 1);
 
   // What the tag actually occupies.
   const b = s.tag.bounds;
   ctx.strokeStyle = 'rgba(255,255,255,0.9)';
   ctx.setLineDash([5, 4]);
-  ctx.strokeRect(view.x(b.x0), view.y(b.y0), (b.x1 - b.x0) * view.scale, (b.y1 - b.y0) * view.scale);
+  box(b.x0, b.y0, b.x1, b.y1);
 
   // Pinned to the frame. Anchored to the box, it landed on the tag or on
   // the speed graph, depending on the shape.
@@ -459,12 +1019,13 @@ function drawBounds(s) {
   );
 
   // Origin crosshair.
+  const [ox, oy] = P(0, 0);
   ctx.strokeStyle = 'rgba(255,255,255,0.55)';
   ctx.beginPath();
-  ctx.moveTo(view.x(0) - 7, view.y(0));
-  ctx.lineTo(view.x(0) + 7, view.y(0));
-  ctx.moveTo(view.x(0), view.y(0) - 7);
-  ctx.lineTo(view.x(0), view.y(0) + 7);
+  ctx.moveTo(ox - 7, oy);
+  ctx.lineTo(ox + 7, oy);
+  ctx.moveTo(ox, oy - 7);
+  ctx.lineTo(ox, oy + 7);
   ctx.stroke();
   ctx.restore();
 }
@@ -481,15 +1042,17 @@ function drawPoints(s, prog) {
 
     ctx.fillStyle = 'rgba(255,255,255,0.85)';
     for (let i = 0; i < count; i++) {
-      ctx.fillRect(view.x(pts[i][0]) - 1, view.y(pts[i][1]) - 1, 2, 2);
+      const [x, y] = view.at(pts[i][0], pts[i][1], pts[i][2]);
+      ctx.fillRect(x - 1, y - 1, 2, 2);
     }
 
     // Where each stroke begins, numbered in capture order.
+    const [sx, sy] = view.at(pts[0][0], pts[0][1], pts[0][2]);
     ctx.fillStyle = '#ffffff';
     ctx.beginPath();
-    ctx.arc(view.x(pts[0][0]), view.y(pts[0][1]), 3, 0, TAU);
+    ctx.arc(sx, sy, 3, 0, TAU);
     ctx.fill();
-    ctx.fillText('S' + String(si + 1).padStart(2, '0'), view.x(pts[0][0]) + 6, view.y(pts[0][1]) - 5);
+    ctx.fillText('S' + String(si + 1).padStart(2, '0'), sx + 6, sy - 5);
   });
   ctx.restore();
 }
@@ -507,15 +1070,15 @@ function drawVectors(s, prog) {
     const pts = stroke.points;
     // Every 4th sample, or the overlay becomes a solid mat of arrows.
     for (let i = 1; i < count; i += 4) {
-      const dx = pts[i][0] - pts[i - 1][0];
-      const dy = pts[i][1] - pts[i - 1][1];
       const mag = clamp(stroke.speed[i] / tag.peakSpeed, 0, 1);
       // Sized against the artwork rather than in fixed pixels, and never
       // shorter than a stub: a slow tag used to draw arrows too small to see.
       const reach = view.unit * (0.024 + mag * 0.055);
-      const a = Math.atan2(dy, dx);
-      const x = view.x(pts[i][0]);
-      const y = view.y(pts[i][1]);
+      // The heading has to be taken after projecting, or a turned camera
+      // leaves every arrow pointing the way the hand went on a flat screen.
+      const [px, py] = view.at(pts[i - 1][0], pts[i - 1][1], pts[i - 1][2]);
+      const [x, y] = view.at(pts[i][0], pts[i][1], pts[i][2]);
+      const a = Math.atan2(y - py, x - px);
       const tx = x + Math.cos(a) * reach;
       const ty = y + Math.sin(a) * reach;
       const head = reach * 0.34;
@@ -570,7 +1133,10 @@ function drawSpeedGraph(s, t) {
   ctx.fillStyle = 'rgba(255,255,255,0.45)';
   ctx.font = '500 9px ' + MONO;
   ctx.fillText('SPEED', 8, y - 6);
-  ctx.fillText(tag.peakSpeed.toFixed(2) + ' u/s PEAK', view.w - 88, y - 6);
+  // Right-aligned, not offset by a guess at how wide it is. A fast tag reads
+  // in the hundreds, and the guess ran it off the edge.
+  ctx.textAlign = 'right';
+  ctx.fillText(tag.peakSpeed.toFixed(2) + ' u/s PEAK', view.w - 8, y - 6);
   ctx.restore();
 }
 
@@ -591,7 +1157,31 @@ function drawSpeedGraph(s, t) {
  */
 const ghosts = new WeakMap();
 
-function ghostLayer(ctx, w, h) {
+/*
+ * Everything the ghost's picture depends on, other than the tag itself and
+ * the size of the layer, which are checked separately. Redrawing it costs
+ * more than the rest of the frame put together, so it is worth being exact
+ * about when it has to happen.
+ *
+ * The camera is in here, which means depth gets no benefit while the tag is
+ * turning. Nothing to be done about that: a moving camera is a new picture.
+ */
+function ghostKey(s) {
+  const o = s.opts;
+  const c = s.camera;
+  return [
+    // Dust is in here because it moves the drawing back to make room, which
+    // makes the ghost a different picture.
+    s.mode, s.effects.bleed ? 1 : 0, s.effects.jitter ? 1 : 0,
+    s.effects.depth ? 1 : 0, s.effects.dust ? 1 : 0,
+    o.color, o.pad, o.smoothSteps, o.hairline, o.nib, o.nibAngle, o.jitter,
+    s.effects.depth ? [c.yaw, c.pitch, c.dist, o.depthSpan, o.depthZoom] : ''
+  ].join('|');
+}
+
+// Returns the layer plus a context to draw on, or a null context when what
+// is already on the layer is still the right picture.
+function ghostLayer(ctx, w, h, key, tag) {
   let make;
   if (typeof OffscreenCanvas !== 'undefined') make = () => new OffscreenCanvas(1, 1);
   else if (typeof document !== 'undefined') make = () => document.createElement('canvas');
@@ -603,18 +1193,25 @@ function ghostLayer(ctx, w, h) {
 
   let layer = ghosts.get(ctx);
   if (!layer) {
-    layer = make();
+    layer = { canvas: make(), key: null, tag: null };
     ghosts.set(ctx, layer);
   }
-  if (layer.width !== pw || layer.height !== ph) {
-    layer.width = pw;
-    layer.height = ph;
+  const canvas = layer.canvas;
+  if (canvas.width !== pw || canvas.height !== ph) {
+    canvas.width = pw;
+    canvas.height = ph;
+    // Resizing a canvas wipes it, so whatever was cached is gone.
+    layer.key = null;
   }
-  const lctx = layer.getContext('2d');
+  if (layer.key === key && layer.tag === tag) return { canvas, ctx: null };
+
+  layer.key = key;
+  layer.tag = tag;
+  const lctx = canvas.getContext('2d');
   lctx.setTransform(1, 0, 0, 1, 0, 0);
   lctx.clearRect(0, 0, pw, ph);
   lctx.setTransform(m.a, 0, 0, m.d, 0, 0);
-  return lctx;
+  return { canvas, ctx: lctx };
 }
 
 /* --- frame ------------------------------------------------------------- */
@@ -626,23 +1223,35 @@ function ghostLayer(ctx, w, h) {
  *   time     seconds into the tag
  *   w, h     frame size
  *   mode     one of MODES
- *   effects  { ghost, bleed, jitter, fade }, each true or false
+ *   effects  { ghost, bleed, jitter, fade, depth }, each true or false
  *   layers   { ink, drips, vectors, points, bounds, graph }, each true or false
+ *   camera   { yaw, pitch, dist } when depth is on. Radians and multiples of
+ *            the tag's own size. Straight ahead by default.
  *   opts     any of DEFAULTS. Pass the same options prepare() was given.
  */
 export function paint(ctx, tag, frame) {
   const opts = { ...DEFAULTS, ...frame.opts };
   const t = frame.time || 0;
+  const effects = frame.effects || {};
+  const camera = { yaw: 0, pitch: 0, dist: opts.depthDist, ...frame.camera };
+  // Dust needs room, so the drawing takes up less of the frame when it is
+  // on. Solved as padding rather than a zoom, so the stroke widths, which
+  // follow the drawing's own size, come down with it.
+  const pad = effects.dust
+    ? (1 - opts.dustFit * (1 - opts.pad * 2)) / 2
+    : opts.pad;
+  const flat = fit(tag.bounds, frame.w, frame.h, pad);
   const s = {
     ctx,
     tag,
     opts,
-    view: fit(tag.bounds, frame.w, frame.h, opts.pad),
+    camera,
+    view: effects.depth ? orbit(flat, tag.duration, camera, opts) : flat,
     mode: frame.mode || 'marker',
-    effects: frame.effects || {},
+    effects,
     layers: frame.layers || { ink: true, drips: true }
   };
-  const { layers, effects } = s;
+  const { layers } = s;
 
   ctx.save();
   ctx.globalAlpha = 1;
@@ -658,21 +1267,66 @@ export function paint(ctx, tag, frame) {
   // away and leave the preview in pieces. It is a preview, not ink: it does
   // not age.
   if (layers.ink && effects.ghost) {
-    const whole = tag.strokes.map(st => ({ count: st.points.length, partial: 0 }));
-    const layer = ghostLayer(ctx, frame.w, frame.h);
+    const whole = () => tag.strokes.map(st => ({ count: st.points.length, partial: 0 }));
+    const layer = ghostLayer(ctx, frame.w, frame.h, ghostKey(s), tag);
     if (layer) {
-      drawInk({ ...s, ctx: layer }, tag.duration, whole, false);
+      // The same picture on every frame of a playthrough, so it is drawn
+      // once and kept. It used to be redrawn 60 times a second, which cost
+      // more than the ink that was actually changing.
+      if (layer.ctx) drawInk({ ...s, ctx: layer.ctx }, tag.duration, whole(), false);
       ctx.globalAlpha = opts.ghostAlpha;
       ctx.drawImage(layer.canvas, 0, 0, frame.w, frame.h);
     } else {
       ctx.globalAlpha = opts.ghostAlpha;
-      drawInk(s, tag.duration, whole, false);
+      drawInk(s, tag.duration, whole(), false);
     }
     ctx.globalAlpha = 1;
   }
 
-  if (layers.ink) drawInk(s, t, prog, !!effects.fade);
-  if (layers.drips) drawDrips(s, t);
+  // The body, swept back from the drawing and laid down before it, so the
+  // ink itself stays the front face. Along the time axis when depth is on,
+  // where the body is literally the tag's own history; otherwise a fixed
+  // lean, which is how a writer blocks a letter out.
+  if (layers.ink && effects.extrude) {
+    const steps = Math.max(1, Math.round(opts.extrudeSteps));
+    ctx.globalAlpha = opts.extrudeBack;
+    for (let i = steps; i >= 1; i--) {
+      const f = i / steps;
+      s.offset = effects.depth
+        ? { dx: 0, dy: 0, dt: -f * opts.extrudeDepth * tag.duration }
+        : { dx: f * opts.extrudeLean[0] * flat.unit, dy: f * opts.extrudeLean[1] * flat.unit, dt: 0 };
+      drawInk(s, t, prog, false);
+    }
+    s.offset = null;
+    ctx.globalAlpha = 1;
+  }
+
+  // Dust goes down under the ink, and lets go with it: once the tag is
+  // finished the whole field falls and fades out before the loop restarts.
+  if (effects.dust && frame.dust) {
+    const over = (t - tag.duration) / Math.max(opts.loopDelay / 1000, 1e-3);
+    drawDust(s, frame.dust, clamp(1 - over, 0, 1));
+  }
+
+  const artwork = state => {
+    if (layers.ink) drawInk(state, t, prog, !!effects.fade);
+    if (layers.drips) drawDrips(state, t);
+  };
+
+  if (effects.stereo && effects.depth) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    [[-1, opts.stereoLeft], [1, opts.stereoRight]].forEach(([eye, color]) => {
+      artwork({
+        ...s,
+        view: orbit(flat, tag.duration, { ...camera, yaw: camera.yaw + eye * opts.stereoEye }, opts),
+        opts: { ...opts, color }
+      });
+    });
+    ctx.restore();
+  } else {
+    artwork(s);
+  }
 
   if (layers.vectors) drawVectors(s, prog);
   if (layers.graph) drawSpeedGraph(s, t);
@@ -696,13 +1350,15 @@ export class GmlPlayer {
     this.ctx = canvas.getContext('2d');
     this.opts = { ...DEFAULTS, ...options };
     this.layers = { ink: true, drips: true, vectors: false, points: false, bounds: false, graph: false };
-    this.effects = { ghost: true, bleed: false, jitter: false, fade: false };
+    this.effects = { ghost: true, bleed: false, jitter: false, fade: false, depth: false };
     this.mode = 'marker';
     this.playing = false;
     this.time = 0;
+    this.camera = { yaw: 0, pitch: this.opts.depthPitch, dist: this.opts.depthDist };
     this.listeners = {};
     this.load(tag);
 
+    this.orbitInput();
     this.onResize = () => this.resize();
     if (typeof ResizeObserver !== 'undefined') {
       this.observer = new ResizeObserver(this.onResize);
@@ -711,6 +1367,59 @@ export class GmlPlayer {
       window.addEventListener('resize', this.onResize);
     }
     this.resize();
+  }
+
+  /*
+   * Drag to turn the tag, wheel to move in and out. Only while depth is on:
+   * flat, the canvas has to stay an ordinary part of the page, where a drag
+   * selects and a touch scrolls.
+   */
+  orbitInput() {
+    const canvas = this.canvas;
+    if (!canvas.addEventListener) return;
+    let last = null;
+
+    const down = e => {
+      if (!this.effects.depth) return;
+      last = [e.clientX, e.clientY];
+      if (canvas.setPointerCapture) {
+        try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* not captureable */ }
+      }
+    };
+    const move = e => {
+      if (!last) return;
+      const dx = e.clientX - last[0];
+      const dy = e.clientY - last[1];
+      last = [e.clientX, e.clientY];
+      this.camera.yaw += dx * this.opts.orbitSpeed;
+      // Short of straight overhead, where the tag goes edge-on and the
+      // camera would tip over the top.
+      this.camera.pitch = clamp(this.camera.pitch + dy * this.opts.orbitSpeed, -1.3, 1.3);
+      if (!this.playing) this.render();
+    };
+    const up = () => { last = null; };
+    const wheel = e => {
+      if (!this.effects.depth) return;
+      e.preventDefault();
+      this.camera.dist = clamp(this.camera.dist * (1 + e.deltaY * this.opts.zoomSpeed), 1.2, 8);
+      if (!this.playing) this.render();
+    };
+
+    canvas.addEventListener('pointerdown', down);
+    canvas.addEventListener('pointermove', move);
+    canvas.addEventListener('pointerup', up);
+    canvas.addEventListener('pointercancel', up);
+    // Not passive: it has to be able to keep the page from scrolling under a
+    // zoom, and the guard above means it only ever does that in depth.
+    canvas.addEventListener('wheel', wheel, { passive: false });
+
+    this.offOrbit = () => {
+      canvas.removeEventListener('pointerdown', down);
+      canvas.removeEventListener('pointermove', move);
+      canvas.removeEventListener('pointerup', up);
+      canvas.removeEventListener('pointercancel', up);
+      canvas.removeEventListener('wheel', wheel);
+    };
   }
 
   on(name, fn) {
@@ -728,6 +1437,9 @@ export class GmlPlayer {
   load(tag) {
     this.tag = prepare(tag, this.opts);
     this.time = 0;
+    // Built on demand: it is 15,000 particles, and most playbacks never
+    // switch it on.
+    this.dust = null;
     this.emit('load', this.tag);
     if (this.w) this.render();
     return this;
@@ -759,6 +1471,8 @@ export class GmlPlayer {
       mode: this.mode,
       effects: this.effects,
       layers: this.layers,
+      camera: this.camera,
+      dust: this.dust,
       opts: this.opts
     });
     this.emit('frame', { time: this.time, duration: this.tag.duration });
@@ -776,10 +1490,16 @@ export class GmlPlayer {
       const dt = Math.min((now - this.last) / 1000, 0.1) * this.opts.speed;
       this.last = now;
       this.time += dt;
+      // The turn rides on playback, so it keeps time with the speed control
+      // and stops dead when you pause to look at something.
+      if (this.effects.depth) this.camera.yaw += this.opts.autoRotate * dt;
+      // A field cannot be run backwards, so the dust follows the clock
+      // forwards and starts again whenever the clock does.
+      if (this.effects.dust) this.wake().step(dt, this.time);
 
       // Hold on the finished tag before starting over.
       if (this.time >= this.tag.duration + this.opts.loopDelay / 1000) {
-        if (this.opts.loop) this.time = 0;
+        if (this.opts.loop) { this.time = 0; if (this.dust) this.dust.reset(); }
         else { this.time = this.tag.duration; this.pause(); this.render(); return; }
       }
       this.render();
@@ -791,6 +1511,10 @@ export class GmlPlayer {
   }
 
   pause() {
+    // Only when something changes. Scrubbing pauses on every input event,
+    // and each one used to cancel a stale frame and announce a state the
+    // listeners were already showing.
+    if (!this.playing) return this;
     this.playing = false;
     if (this.raf) globalThis.cancelAnimationFrame(this.raf);
     this.emit('state', { playing: false });
@@ -799,8 +1523,17 @@ export class GmlPlayer {
 
   toggle() { return this.playing ? this.pause() : this.play(); }
 
+  // The dust field, made the first time something asks for it.
+  wake() {
+    if (!this.dust) this.dust = new Dust(this.tag, this.opts);
+    return this.dust;
+  }
+
   seek(t) {
     this.time = clamp(t, 0, this.tag.duration);
+    // Scrubbing lands somewhere the field never travelled to, so it starts
+    // over rather than showing a history that did not happen.
+    if (this.dust) this.dust.reset();
     return this.render();
   }
 
@@ -813,6 +1546,9 @@ export class GmlPlayer {
   setEffect(name, on) {
     if (!EFFECTS.includes(name)) return this;
     this.effects[name] = !!on;
+    // Depth takes the drag gesture over, so it also has to take the touch
+    // gesture the browser would otherwise spend on scrolling the page.
+    if (name === 'depth' && this.canvas.style) this.canvas.style.touchAction = on ? 'none' : '';
     return this.render();
   }
 
@@ -829,6 +1565,7 @@ export class GmlPlayer {
 
   destroy() {
     this.pause();
+    if (this.offOrbit) this.offOrbit();
     if (this.observer) this.observer.disconnect();
     else if (typeof window !== 'undefined') window.removeEventListener('resize', this.onResize);
   }

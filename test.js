@@ -5,7 +5,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parse, prepare, progress, isLandscape } from './gml.js';
-import { fit, paint, GmlPlayer, MODES, EFFECTS, LAYERS } from './gml-player.js';
+import { fit, orbit, paint, DEFAULTS, GmlPlayer, MODES, EFFECTS, LAYERS } from './gml-player.js';
 
 const near = (a, b, eps = 1e-6) => Math.abs(a - b) < eps;
 
@@ -152,6 +152,19 @@ describe('fit', () => {
     assert.ok(near(v.x(0.5), 100));
     assert.ok(near(v.y(0.25), 100));
   });
+
+  // The painter projects every sample through at(). Flat, that has to come
+  // out exactly where the old x() and y() put it, whatever the time.
+  test('places a sample where it always did, and ignores its time', () => {
+    const v = fit({ x0: 0.1, y0: 0.2, x1: 0.9, y1: 0.7 }, 640, 480);
+    for (const [x, y] of [[0.1, 0.2], [0.5, 0.45], [0.9, 0.7], [-0.3, 1.4]]) {
+      for (const t of [0, 3, 99]) {
+        const [ax, ay, z, k] = v.at(x, y, t);
+        assert.ok(near(ax, v.x(x)) && near(ay, v.y(y)), 'at ' + x + ',' + y);
+        assert.ok(z === 0 && k === 1, 'no depth and no change of width');
+      }
+    }
+  });
 });
 
 const pt = (x, y, t) => ({ x: String(x), y: String(y), time: String(t) });
@@ -237,6 +250,50 @@ describe('isLandscape', () => {
   });
 });
 
+describe('orbit', () => {
+  const bounds = { x0: 0, y0: 0, x1: 1, y1: 1 };
+  const view = fit(bounds, 400, 300);
+  const cam = { yaw: 0, pitch: 0, dist: DEFAULTS.depthDist };
+  const O = (c) => orbit(view, 4, { ...cam, ...c }, DEFAULTS);
+
+  test('looks straight down the time axis by default', () => {
+    // Dead ahead, depth is the flat fit pulled back by depthZoom, so the
+    // middle of the drawing does not move and nothing is skewed.
+    const [x, y] = O().at(0.5, 0.5, 2);
+    assert.ok(near(x, 200) && near(y, 150), 'the middle stays in the middle');
+
+    const flat = view.x(0.9) - 200;
+    const [dx] = O().at(0.9, 0.5, 2);
+    assert.ok(near(dx - 200, flat * DEFAULTS.depthZoom), 'shrunk by depthZoom, not skewed');
+  });
+
+  test('puts each sample at its own moment', () => {
+    const early = O().at(0.5, 0.5, 0);
+    const late = O().at(0.5, 0.5, 4);
+    assert.ok(early[2] < late[2], 'earlier samples are nearer the camera');
+    assert.ok(early[3] > late[3], 'and so are drawn wider');
+    assert.ok(near(O().at(0.5, 0.5, 2)[3], DEFAULTS.depthZoom), 'mid-tag is the reference width');
+  });
+
+  test('turning moves a sample by when it was drawn, not just where', () => {
+    // Side on, the whole spread across the frame is time.
+    const side = O({ yaw: Math.PI / 2 });
+    assert.ok(Math.abs(side.at(0.5, 0.5, 0)[0] - side.at(0.5, 0.5, 4)[0]) > 40);
+    assert.ok(near(side.at(0.2, 0.5, 2)[0], side.at(0.8, 0.5, 2)[0]), 'x has turned edge-on');
+  });
+
+  test('reports when the strokes have to be laid down backwards', () => {
+    assert.equal(O().behind, true, 'facing the start, later strokes are further off');
+    assert.equal(O({ yaw: Math.PI }).behind, false, 'round the back they are nearer');
+    assert.equal(fit(bounds, 400, 300).behind, false, 'flat, time is not a direction');
+  });
+
+  test('does not project a sample that has gone behind the camera', () => {
+    const [x, y, , k] = O({ dist: 0.001 }).at(0.5, 0.5, 0);
+    assert.ok(near(x, 200) && near(y, 150) && k === 0, 'parked at no width, not mirrored');
+  });
+});
+
 describe('paint', () => {
   const tag = prepare({ strokes: [
     { points: Array.from({ length: 30 }, (_, i) => [0.1 + i / 40, 0.5 + Math.sin(i / 3) * 0.2, i * 0.03]) },
@@ -281,6 +338,37 @@ describe('paint', () => {
 
       paint(ctx, tag, frame);
       assert.equal(layers.length, 1, 'one layer per context, kept between frames');
+    } finally {
+      delete globalThis.OffscreenCanvas;
+    }
+  });
+
+  // The ghost is the whole tag at full length, so playing does not change
+  // it. Redrawing it every frame cost more than the ink that was moving.
+  test('draws the ghost once, then keeps it until the picture changes', () => {
+    const onLayer = [];
+    globalThis.OffscreenCanvas = class {
+      constructor() { this.ctx = loggingContext(onLayer); this.ctx.canvas = this; }
+      getContext() { return this.ctx; }
+    };
+    try {
+      const ctx = loggingContext([]);
+      const frame = { w: 400, h: 300, effects: { ghost: true }, layers: { ink: true } };
+      const fills = () => onLayer.filter(([k]) => k === 'fill').length;
+
+      paint(ctx, tag, { ...frame, time: 0 });
+      const once = fills();
+      assert.ok(once > 0, 'drawn on the first frame');
+
+      for (let i = 1; i <= 20; i++) paint(ctx, tag, { ...frame, time: i * 0.1 });
+      assert.equal(fills(), once, 'and not again while only the time moves');
+
+      paint(ctx, tag, { ...frame, time: 0, mode: 'chisel' });
+      assert.ok(fills() > once, 'a change of mode is a new picture');
+
+      const after = fills();
+      paint(ctx, tag, { ...frame, time: 0, mode: 'chisel', effects: { ghost: true, depth: true } });
+      assert.ok(fills() > after, 'and so is turning depth on');
     } finally {
       delete globalThis.OffscreenCanvas;
     }

@@ -59,6 +59,10 @@ the result with anything.
 - `paint(ctx, tag, frame)` draws one frame on any 2D context. It works with
   OffscreenCanvas and Node canvas libraries.
 - `fit(bounds, w, h, pad)` says where the drawing lands in a frame
+- `orbit(view, duration, camera, opts)` turns a fit into a camera that reads
+  time as depth
+- `Dust(tag, options)` is the particle field. `step(dt, t)` moves it on,
+  `reset()` puts it back
 - `GmlPlayer(canvas, tag, options)` runs a canvas: sizing, clock and events
 - `MODES`, `EFFECTS`, `LAYERS` and `DEFAULTS`
 
@@ -79,12 +83,28 @@ minute-long stalls. The timeline is fixed first. What changed is counted on
 Line width follows the hand. Slow is wide. Fast is thin. Ink runs from where
 the line is widest.
 
-4 modes. `marker` is a spline through the samples, wide where the hand was
+8 modes. `marker` is a spline through the samples, wide where the hand was
 slow. `chisel` is a flat nib at a fixed angle, so width comes from direction.
-`hairline` and `skeleton` are diagrams.
+`spray` scatters ink on a Gaussian, the way a can does, so density follows
+how long the hand lingered. `outline` draws the silhouette only, which is the
+shape a writer lays down before filling it. `sketch` draws the line twice,
+each pass bowed off the true path. `dyna` tows a brush with mass along the
+path on a spring and draws where the brush went, after Paul Haeberli's
+DynaDraw. `hairline` and `skeleton` are diagrams.
 
-4 effects. `ghost` shows the whole tag faint underneath. `bleed` soaks the
+7 effects. `ghost` shows the whole tag faint underneath. `bleed` soaks the
 ink outwards. `jitter` nudges every sample by noise. `fade` dims old ink.
+`depth` puts each sample at the moment it was drawn, so the tag has real
+thickness. Drag to turn it, scroll to move in and out. `extrude` sweeps the
+drawing backwards into a solid body, along the time axis when depth is on.
+`stereo` draws it from two eyes in red and cyan, for a pair of anaglyph
+glasses; it needs depth. `dust` puts 15,000 particles on a vector field the
+drawing pushes around, each trailing a line back to where it started. Every
+one of them works with every mode and with the drips.
+
+`dust` is a simulation, not a function of the clock, so it cannot live inside
+`paint()`. The player owns a `Dust`, steps it, and passes it in. Seeking or
+looping starts it over, because a field like that has no reverse.
 
 6 data layers, for checking a tag. `ink` and `drips` are the drawing.
 `vectors` are arrows for direction and speed. `points` marks every sample.
@@ -112,6 +132,18 @@ Tests need no browser and no network.
 Started in 2009 for GML Week at F.A.T. Lab as a Processing.js sketch. v4
 dropped Processing.js and fixed the maths. v6 split it into modules and put
 it on npm.
+
+Time as depth comes from Evan Roth's Graffiti Analysis, by way of his 3D fork
+of this player. That fork reached for WebGL. It does not need to: a tag is a
+few thousand points, so the projection is 40 lines of arithmetic and every
+mode and effect keeps working.
+
+The drawing modes are borrowed too. `dyna` is Paul Haeberli's DynaDraw (1989),
+which filtered a mouse through a mass on a spring and drew the mass. `sketch`
+follows Jo Wood and colleagues' sketchy rendering, the method behind Handy and
+Rough.js. `spray` uses the Gaussian that airbrush simulations have used since
+the 1980s. `dust` is Evan Roth's, numbers and all, moved from WebGL onto the
+2D canvas.
 
 Public domain, Jamie Wilkinson & Free Art & Technology (F.A.T.) Lab.
 No rights reserved.
