@@ -11,7 +11,7 @@
  * No rights reserved.
  */
 
-import { MODES, EFFECTS, LAYERS } from './gml-player.js';
+import { MODES, EFFECTS, VIEWS, LAYERS } from './gml-player.js';
 
 const RATES = [0.25, 0.5, 1, 2, 4];
 
@@ -105,9 +105,9 @@ export function transport(player, host) {
 }
 
 /*
- * One row each for mode, effects and layers. Mode is one-of-many, so it
- * joins into one control. Effects and layers are independent, so they stay
- * separate chips.
+ * One row each for mode, effects, view and layers. Mode is one-of-many, so
+ * it joins into one control. The rest are independent, so they stay separate
+ * chips.
  */
 export function switches(player, host) {
   host.classList.add('gml-switches');
@@ -136,6 +136,7 @@ export function switches(player, host) {
 
   row('Ink mode', MODES, 'set segmented', name => player.mode === name, name => player.setMode(name));
   row('Effects', EFFECTS, 'set', name => player.effects[name], name => player.setEffect(name, !player.effects[name]));
+  row('View', VIEWS, 'set', name => player.views[name], name => player.setView(name, !player.views[name]));
   row('Data', LAYERS, 'set', name => player.layers[name], name => player.setLayer(name, !player.layers[name]));
 
   return host;

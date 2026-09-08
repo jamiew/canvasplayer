@@ -64,7 +64,7 @@ the result with anything.
 - `Dust(tag, options)` is the particle field. `step(dt, t)` moves it on,
   `reset()` puts it back
 - `GmlPlayer(canvas, tag, options)` runs a canvas: sizing, clock and events
-- `MODES`, `EFFECTS`, `LAYERS` and `DEFAULTS`
+- `MODES`, `EFFECTS`, `VIEWS`, `LAYERS` and `DEFAULTS`
 
 `canvasplayer/ui` builds controls: `transport` and `switches`.
 
@@ -91,6 +91,13 @@ shape a writer lays down before filling it. `sketch` draws the line twice,
 each pass bowed off the true path. `dyna` tows a brush with mass along the
 path on a spring and draws where the brush went, after Paul Haeberli's
 DynaDraw. `hairline` and `skeleton` are diagrams.
+
+3 view options, on top of depth. `cue` dims what is far off, so depth reads
+in a still frame and not only while the camera moves. `strata` gives each
+stroke one flat plane at the moment it began, instead of every sample
+carrying its own depth, so a tag built up in passes comes apart into those
+passes. `ortho` drops perspective for a parallel projection: a technical
+drawing rather than a photograph.
 
 7 effects. `ghost` shows the whole tag faint underneath. `bleed` soaks the
 ink outwards. `jitter` nudges every sample by noise. `fade` dims old ink.

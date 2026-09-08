@@ -1,11 +1,15 @@
-# Plan
+# Plan -- native-3d branch
+
+This branch is the 2D canvas renderer with time as depth. `main` is the flat
+renderer; `threejs-renderer` is the WebGL one. All three share `gml.js`.
 
 ## Where we are
 
-canvasplayer v6.2 is 3 ES modules and an npm package. Not published yet.
+canvasplayer on this branch is 3 ES modules and an npm package.
 
 - `gml.js` parses and prepares. Pure, no DOM.
-- `gml-player.js` paints and plays. 8 ink modes, 7 effects, 6 data layers.
+- `gml-player.js` paints and plays. 8 ink modes, 8 effects, 3 view options,
+  6 data layers.
 - `gml-ui.js` and `gml-ui.css` build the controls.
 - `index.html` is the demo. It loads tags over JSONP and uses all 3 modules.
 - `test.js` runs under `node --test`. 48 tests pass.

@@ -26,6 +26,20 @@ export const MODES = ['marker', 'chisel', 'spray', 'outline', 'sketch', 'dyna', 
 // Combinable treatments applied on top of whichever mode is active.
 export const EFFECTS = ['ghost', 'bleed', 'jitter', 'fade', 'depth', 'extrude', 'stereo', 'dust'];
 
+/*
+ * How the depth is looked at, rather than what is drawn. All three only mean
+ * anything with `depth` on.
+ *
+ *   cue     what is far off goes dim, so depth reads in a still frame and
+ *           not just while the camera is moving
+ *   strata  one flat plane per stroke, at the moment that stroke began,
+ *           instead of every sample carrying its own depth. A tag built up
+ *           in passes comes apart into those passes
+ *   ortho   parallel projection: no vanishing point, nothing nearer drawn
+ *           larger. A technical drawing rather than a photograph
+ */
+export const VIEWS = ['cue', 'strata', 'ortho'];
+
 export const DEFAULTS = {
   ...PREPARE,
 
@@ -164,6 +178,9 @@ export const DEFAULTS = {
   depthPitch: -0.2,
   orbitSpeed: 0.01,
   zoomSpeed: 0.0015,
+  // How dim the far end of the tag goes under `cue`. Not to nothing: the
+  // back of a tag should recede, not disappear.
+  cueFar: 0.34,
 
   color: '#ffffff',
   background: '#000000',
@@ -229,8 +246,11 @@ export function fit(bounds, w, h, pad = DEFAULTS.pad) {
     y: v => oy + v * scale,
     // Flat, so time is not a direction and every sample is the same size.
     // The third value is depth, the fourth what perspective does to width.
+    bounds,
     at: (x, y) => [ox + x * scale, oy + y * scale, 0, 1],
-    behind: false
+    behind: false,
+    // Flat has no far end, so nothing is ever dimmed for distance.
+    nearness: () => 1
   };
 }
 
@@ -249,7 +269,8 @@ export function fit(bounds, w, h, pad = DEFAULTS.pad) {
  * depth on does not move the drawing, only pulls it back. Samples nearer the
  * camera are drawn wider, which is what makes the perspective read.
  */
-export function orbit(view, duration, camera, opts) {
+export function orbit(view, duration, camera, opts, views) {
+  const ortho = !!(views && views.ortho);
   const ca = Math.cos(camera.yaw);
   const sa = Math.sin(camera.yaw);
   const cp = Math.cos(camera.pitch);
@@ -265,12 +286,40 @@ export function orbit(view, duration, camera, opts) {
   const midX = view.w / 2;
   const midY = view.h / 2;
 
+  // The eight corners of the tag's box, swept through its whole time, are
+  // the nearest and furthest anything can be. Eight projections, once a
+  // frame, and depth cueing then has a real range to work against.
+  let near = Infinity;
+  let far = -Infinity;
+  const b = view.bounds;
+  for (const x of [b.x0, b.x1]) {
+    for (const y of [b.y0, b.y1]) {
+      for (const t of [0, duration]) {
+        const px = view.x(x) - midX;
+        const py = view.y(y) - midY;
+        const pz = (t / duration - 0.5) * opts.depthSpan * span;
+        const rz = pz * ca - px * sa;
+        const ez = py * sp + rz * cp + eye;
+        if (ez < near) near = ez;
+        if (ez > far) far = ez;
+      }
+    }
+  }
+
   return {
     ...view,
 
     // Whether later strokes now sit further away. If they do the painter has
     // to lay them down first, or the tag draws itself inside out.
     behind: ca * cp > 0,
+
+    // 1 at the nearest corner of the tag, 0 at the furthest. The range is
+    // measured, not assumed: how deep a tag looks depends on where the
+    // camera is as much as on how long it took to write, and a guess at it
+    // dimmed the near face along with the far one.
+    nearness(ez) {
+      return far > near ? clamp((far - ez) / (far - near), 0, 1) : 1;
+    },
 
     at(x, y, t) {
       // Offsets from the middle of the fitted drawing, which is where the
@@ -285,6 +334,10 @@ export function orbit(view, duration, camera, opts) {
       const rz = pz * ca - px * sa;
       const ry = py * cp - rz * sp;
       const ez = py * sp + rz * cp + eye;
+
+      // Parallel projection has no lens to be behind and no vanishing point,
+      // so distance changes nothing but which way round things are drawn.
+      if (ortho) return [midX + rx * zoom, midY + ry * zoom, ez, zoom];
 
       // Behind the lens, where the projection turns inside out. Park it on
       // the vanishing point at no width rather than draw it mirrored.
@@ -313,18 +366,23 @@ function path(s, stroke, si, from, to, partial, spread) {
   // Where this pass sits relative to the drawing itself. Only extrude moves
   // it, and then only to sweep the same ink backwards into a body.
   const off = s.offset || NO_OFFSET;
+  // Under strata a stroke is a flat plane at the moment it began, so every
+  // sample in it reads the same time.
+  const plane = s.views.strata ? pts[0][2] : null;
+  const when = i => (plane === null ? pts[i][2] : plane) + off.dt;
 
   for (let i = from; i < to; i++) {
     const [jx, jy] = jitterAt(jitter, si, i);
     // Depth widens what is near and narrows what is far, on top of the width
     // speed already gave the sample.
-    const [x, y, , k] = view.at(pts[i][0], pts[i][1], pts[i][2] + off.dt);
+    const [x, y, , k] = view.at(pts[i][0], pts[i][1], when(i));
     out.push([x + jx + off.dx, y + jy + off.dy, stroke.width[i] * view.unit * spread * k]);
   }
   if (partial > 0 && to < pts.length && to > from) {
     const a = pts[to - 1];
     const b = pts[to];
-    const [x, y, , k] = view.at(lerp(a[0], b[0], partial), lerp(a[1], b[1], partial), lerp(a[2], b[2], partial) + off.dt);
+    const t = plane === null ? lerp(a[2], b[2], partial) + off.dt : plane + off.dt;
+    const [x, y, , k] = view.at(lerp(a[0], b[0], partial), lerp(a[1], b[1], partial), t);
     out.push([x + off.dx, y + off.dy, lerp(stroke.width[to - 1], stroke.width[to], partial) * view.unit * spread * k]);
   }
   return out;
@@ -616,14 +674,29 @@ function drawStroke(s, stroke, si, from, to, partial, spread) {
 }
 
 /*
- * Ink for one frame. With fade on, each stroke is drawn in slices whose
- * opacity falls off with age, leaving a comet tail.
+ * Ink for one frame.
+ *
+ * Fade and depth cueing both want a stroke drawn at more than one opacity
+ * along its length, so either one puts it into slices: fade reads the slice's
+ * age, cueing reads how far off it is. Canvas cannot shade a filled shape
+ * along itself, and slicing is the way round that. With neither on, a stroke
+ * is a single fill, as it always was.
  */
 function drawInk(s, t, prog, fade) {
   const { ctx, opts } = s;
   const base = ctx.globalAlpha;
   const strokes = s.tag.strokes;
   const n = strokes.length;
+  const cueing = !!s.views.cue;
+
+  // How lit a sample is for its distance: full at the near face of the
+  // scene, down to cueFar at the back. Under strata a stroke is one flat
+  // plane, so every slice of it reads the same distance and is lit the same,
+  // which is what a plane should look like.
+  const cueAt = (pt, plane) => {
+    const ez = s.view.at(pt[0], pt[1], plane === null ? pt[2] : plane)[2];
+    return lerp(opts.cueFar, 1, s.view.nearness(ez));
+  };
 
   for (let k = 0; k < n; k++) {
     // Painter's algorithm, and z is time, so the strokes are already sorted:
@@ -633,32 +706,36 @@ function drawInk(s, t, prog, fade) {
     const p = prog[si];
     if (!p.count) continue;
     const draw = (from, to, partial, spread) => drawStroke(s, stroke, si, from, to, partial, spread);
+    const pts = stroke.points;
+    const plane = s.views.strata ? pts[0][2] : null;
 
     ctx.fillStyle = opts.color;
     ctx.strokeStyle = opts.color;
 
-    // Ink soaking outwards, under the stroke itself.
+    // Ink soaking outwards, under the stroke itself. One pass for the whole
+    // stroke: the bleed is a haze, and it does not need shading.
     if (s.effects.bleed) {
+      const soak = cueing ? cueAt(pts[Math.min(p.count, pts.length) - 1], plane) : 1;
       BLEED.forEach(([spread, alpha]) => {
-        ctx.globalAlpha = base * alpha;
+        ctx.globalAlpha = base * soak * alpha;
         draw(0, p.count, p.partial, spread);
       });
       ctx.globalAlpha = base;
     }
 
-    if (!fade) {
+    if (!fade && !cueing) {
       draw(0, p.count, p.partial, 1);
       continue;
     }
 
     // Slices overlap by one sample so the joins do not show as gaps.
-    const pts = stroke.points;
     const slices = Math.max(1, Math.min(28, Math.ceil(p.count / 6)));
     const step = Math.ceil(p.count / slices);
     for (let from = 0; from < p.count; from += step) {
       const to = Math.min(from + step + 1, p.count);
       const last = Math.min(to, pts.length) - 1;
-      ctx.globalAlpha = base * clamp(1 - (t - pts[last][2]) / opts.fadeWindow, 0.04, 1);
+      const age = fade ? clamp(1 - (t - pts[last][2]) / opts.fadeWindow, 0.04, 1) : 1;
+      ctx.globalAlpha = base * age * (cueing ? cueAt(pts[last], plane) : 1);
       draw(from, to, to === p.count ? p.partial : 0, 1);
     }
     ctx.globalAlpha = base;
@@ -1174,6 +1251,7 @@ function ghostKey(s) {
     // makes the ghost a different picture.
     s.mode, s.effects.bleed ? 1 : 0, s.effects.jitter ? 1 : 0,
     s.effects.depth ? 1 : 0, s.effects.dust ? 1 : 0,
+    s.views.cue ? 1 : 0, s.views.strata ? 1 : 0, s.views.ortho ? 1 : 0,
     o.color, o.pad, o.smoothSteps, o.hairline, o.nib, o.nibAngle, o.jitter,
     s.effects.depth ? [c.yaw, c.pitch, c.dist, o.depthSpan, o.depthZoom] : ''
   ].join('|');
@@ -1227,12 +1305,15 @@ function ghostLayer(ctx, w, h, key, tag) {
  *   layers   { ink, drips, vectors, points, bounds, graph }, each true or false
  *   camera   { yaw, pitch, dist } when depth is on. Radians and multiples of
  *            the tag's own size. Straight ahead by default.
+ *   views    { cue, strata, ortho }, each true or false. How the depth is
+ *            looked at. Nothing without depth.
  *   opts     any of DEFAULTS. Pass the same options prepare() was given.
  */
 export function paint(ctx, tag, frame) {
   const opts = { ...DEFAULTS, ...frame.opts };
   const t = frame.time || 0;
   const effects = frame.effects || {};
+  const views = frame.views || {};
   const camera = { yaw: 0, pitch: 0, dist: opts.depthDist, ...frame.camera };
   // Dust needs room, so the drawing takes up less of the frame when it is
   // on. Solved as padding rather than a zoom, so the stroke widths, which
@@ -1246,7 +1327,8 @@ export function paint(ctx, tag, frame) {
     tag,
     opts,
     camera,
-    view: effects.depth ? orbit(flat, tag.duration, camera, opts) : flat,
+    views,
+    view: effects.depth ? orbit(flat, tag.duration, camera, opts, views) : flat,
     mode: frame.mode || 'marker',
     effects,
     layers: frame.layers || { ink: true, drips: true }
@@ -1319,7 +1401,7 @@ export function paint(ctx, tag, frame) {
     [[-1, opts.stereoLeft], [1, opts.stereoRight]].forEach(([eye, color]) => {
       artwork({
         ...s,
-        view: orbit(flat, tag.duration, { ...camera, yaw: camera.yaw + eye * opts.stereoEye }, opts),
+        view: orbit(flat, tag.duration, { ...camera, yaw: camera.yaw + eye * opts.stereoEye }, opts, views),
         opts: { ...opts, color }
       });
     });
@@ -1350,7 +1432,8 @@ export class GmlPlayer {
     this.ctx = canvas.getContext('2d');
     this.opts = { ...DEFAULTS, ...options };
     this.layers = { ink: true, drips: true, vectors: false, points: false, bounds: false, graph: false };
-    this.effects = { ghost: true, bleed: false, jitter: false, fade: false, depth: false };
+    this.effects = { ghost: true, bleed: false, jitter: false, fade: false, depth: false, extrude: false, stereo: false, dust: false };
+    this.views = { cue: false, strata: false, ortho: false };
     this.mode = 'marker';
     this.playing = false;
     this.time = 0;
@@ -1472,6 +1555,7 @@ export class GmlPlayer {
       effects: this.effects,
       layers: this.layers,
       camera: this.camera,
+      views: this.views,
       dust: this.dust,
       opts: this.opts
     });
@@ -1549,6 +1633,12 @@ export class GmlPlayer {
     // Depth takes the drag gesture over, so it also has to take the touch
     // gesture the browser would otherwise spend on scrolling the page.
     if (name === 'depth' && this.canvas.style) this.canvas.style.touchAction = on ? 'none' : '';
+    return this.render();
+  }
+
+  setView(name, on) {
+    if (!VIEWS.includes(name)) return this;
+    this.views[name] = !!on;
     return this.render();
   }
 
