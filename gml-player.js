@@ -145,10 +145,15 @@ export const DEFAULTS = {
   dustInjectRadius: 4,
   dustInjectStrength: 0.32,
   dustGravity: 0.9,
-  // Sub-pixel, so the dust reads as grain rather than a grid of squares.
-  dustDot: 0.0016,
-  dustAlpha: 1,
-  dustTrail: 0.8,
+  /*
+   * The WebGL renderer sizes its points in world units and lets perspective
+   * scale them, which at its camera works out around three pixels across.
+   * Sub-pixel grain was a poor imitation: its dust reads as distinct points,
+   * not a haze. These alphas are its numbers too.
+   */
+  dustDot: 0.004,
+  dustAlpha: 0.85,
+  dustTrail: 0.5,
   // Steps in the trail's fade. The trail runs bright at the particle to
   // nothing at its origin, and canvas has no per-vertex color, so it is
   // drawn as a few batched passes instead of one gradient each.
@@ -157,29 +162,32 @@ export const DEFAULTS = {
   // barely twitches, and a sub-pixel line costs a full path operation to
   // put nothing on the screen.
   dustMinTrail: 0.9,
-  // The dust field is about twice the size of the tag, so with it on the
-  // drawing has to sit back to leave the field somewhere to be. Without
-  // this the tag fills the frame and all its dust blows off the edges.
-  dustFit: 0.55,
+  // The dust field is about twice the size of the tag. depthZoom already
+  // leaves most of the room it needs, so this only trims the rest.
+  dustFit: 0.85,
 
   // Breathing room around the drawing, as a fraction of the frame.
   pad: 0.08,
 
   // Time as depth. How far the tag reaches front to back, as a multiple of
-  // its own on-screen size, and how far off the camera sits.
-  depthSpan: 0.85,
-  depthDist: 3.2,
+  // its own on-screen size, and how far off the camera sits. Both are the
+  // WebGL renderer's, which is the look this is chasing: nearly twice the
+  // depth, seen from closer in, so the perspective is much stronger.
+  depthSpan: 1.6,
+  depthDist: 2.7,
   // The drawing shrinks to leave room to turn in. Side on, a tag is as wide
   // as it is deep, and the near end is magnified on top of that; without the
-  // shrink it runs off the frame every time the camera comes round.
-  depthZoom: 0.84,
+  // shrink it runs off the frame every time the camera comes round. With the
+  // WebGL renderer's depth that is a lot of room, which is why its tag sits
+  // small in the frame with the dust spread around it.
+  depthZoom: 0.5,
   // Radians per second of playback, so the turn keeps time with the speed
   // control rather than running at its own pace. A full turn takes about a
   // minute: fast enough to read as depth, slow enough to read the tag.
   autoRotate: 0.12,
-  // Off dead ahead to start with, or the first seconds of a tag look flat
-  // and the whole effect arrives late.
-  depthPitch: -0.2,
+  // Dead level, as the WebGL renderer starts. With this much depth the turn
+  // alone carries it; the tilt was propping up a shallower tag.
+  depthPitch: 0,
   orbitSpeed: 0.01,
   zoomSpeed: 0.0015,
   // How dim the far end of the tag goes under `cue`. Not to nothing: the
@@ -190,7 +198,9 @@ export const DEFAULTS = {
   background: '#000000',
 
   loop: true,
-  loopDelay: 1400,
+  // A second to look at the finished tag, then gravity takes the dust and
+  // everything fades out. The WebGL renderer's timing.
+  loopDelay: 3600,
   speed: 1
 };
 
@@ -1045,11 +1055,19 @@ function drawDust(s, dust, fade) {
   ctx.lineWidth = 1;
 
   for (let pass = 0; pass < steps; pass++) {
-    // Pass 0 is the whole trail, the last is just the tip. Stacked additively
-    // they come out as a ramp, which is the nearest canvas gets to shading a
-    // line along its own length.
+    /*
+     * Pass 0 is the whole trail, the last is just the tip, and stacked
+     * additively they come out as a ramp -- the nearest canvas gets to
+     * shading a line along its own length.
+     *
+     * The passes are weighted 1, 2, 3 rather than equally. Equal weights put
+     * a third of full brightness on the far end of every trail, which read
+     * as haze; the WebGL renderer's trails go to black at the origin, and
+     * this leans the ramp the same way.
+     */
     const from = pass / steps;
-    ctx.globalAlpha = (opts.dustTrail / steps) * fade;
+    const weight = (pass + 1) / ((steps * (steps + 1)) / 2);
+    ctx.globalAlpha = opts.dustTrail * weight * fade;
     ctx.beginPath();
     for (let k = 0; k < n; k++) {
       const i = k * 5;
@@ -1468,10 +1486,16 @@ export class GmlPlayer {
     this.ctx = canvas.getContext('2d');
     this.opts = { ...DEFAULTS, ...options };
     this.layers = { ink: true, drips: true, vectors: false, points: false, bounds: false, graph: false };
-    // Depth is on by default on this branch, because it is the point of it.
-    // Off, this player is identical to the flat one and the whole thing
-    // looks broken.
-    this.effects = { ghost: true, bleed: false, jitter: false, fade: false, depth: true, extrude: false, stereo: false, dust: false };
+    /*
+     * Depth and dust are on by default, because between them they are the
+     * point of this branch. Off, it draws exactly what the flat renderer
+     * draws and reads as broken.
+     *
+     * The ghost is off, unlike the flat renderer: it is a grey copy of the
+     * whole tag, and under a dust field it is clutter rather than a preview.
+     * The WebGL renderer has no equivalent.
+     */
+    this.effects = { ghost: false, bleed: false, jitter: false, fade: false, depth: true, extrude: false, stereo: false, dust: true };
     this.views = { cue: false, strata: false, ortho: false };
     this.mode = 'marker';
     this.playing = false;
