@@ -124,6 +124,14 @@
       line-height: 1;
     }
 
+
+    /* Which renderer you are looking at. The three are separate branches,
+       published side by side, so this is how you get between them. */
+    .renderers { margin: 10px 0 0; font-size: 12px; color: var(--mute); }
+    .renderers a { color: var(--mute); text-decoration: none; margin: 0 6px; }
+    .renderers a:hover { color: var(--ink); text-decoration: underline; }
+    .renderers a[aria-current] { color: var(--ink); font-weight: 600; }
+
     .tagline {
       margin: 12px auto 0;
       max-width: 72ch;
@@ -284,6 +292,7 @@
       <a href="https://fffff.at/gml-week-graffiti-markup-language/">Graffiti Markup Language</a>
       visualization demo. <a href="https://github.com/jamiew/canvasplayer">View code on GitHub</a>
     </p>
+    <p class="renderers"><a href="./" aria-current="page">2D canvas</a><a href="native-3d/">time as depth</a><a href="threejs/">WebGL</a></p>
   </header>
 
   <div class="layout">
