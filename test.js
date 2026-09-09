@@ -31,6 +31,8 @@ function stubCanvas() {
   return {
     getContext: () => ctx,
     style: {},
+    // The player writes the backing size here, as it would on a real canvas.
+    width: 0, height: 0,
     clientWidth: 800, clientHeight: 600,
     parentNode: { clientWidth: 800, clientHeight: 600 }
   };
@@ -390,6 +392,28 @@ describe('GmlPlayer', () => {
     const player = new GmlPlayer(stubCanvas(), { strokes: [{ points: [[0, 0, 0], [0.5, 0.5, 2]] }] });
     assert.equal(player.seek(99).time, 2);
     assert.equal(player.seek(-1).time, 0);
+  });
+
+  // Dust is fifteen thousand additively blended lines, and rasterising those
+  // at retina resolution costs four times what it costs at ordinary
+  // resolution. The grain does not need the pixels; the ink does.
+  test('drops the pixel ratio while dust is on, and puts it back after', () => {
+    const before = globalThis.devicePixelRatio;
+    globalThis.devicePixelRatio = 2;
+    try {
+      const canvas = stubCanvas();
+      // This branch starts with dust on, so it starts at the lower ratio.
+      const player = new GmlPlayer(canvas, { strokes: [{ points: [[0, 0, 0], [0.5, 0.5, 1]] }] });
+      assert.equal(canvas.width, 800, '800 css pixels at a ratio of 1');
+
+      player.setEffect('dust', false);
+      assert.equal(canvas.width, 1600, 'without dust it takes the full ratio');
+
+      player.setEffect('dust', true);
+      assert.equal(canvas.width, 800, 'and drops back');
+    } finally {
+      globalThis.devicePixelRatio = before;
+    }
   });
 
   test('ignores a mode, effect or layer it does not know', () => {

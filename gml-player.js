@@ -165,6 +165,16 @@ export const DEFAULTS = {
   // The dust field is about twice the size of the tag. depthZoom already
   // leaves most of the room it needs, so this only trims the rest.
   dustFit: 0.85,
+  /*
+   * Device pixel ratio while dust is on.
+   *
+   * Fifteen thousand additively blended lines cost four times as much on a
+   * retina screen as on an ordinary one, and that is rasterisation, not
+   * arithmetic -- it never shows up in the time spent in the draw call. Dust
+   * is fine grain and does not need the resolution. Ink does, so this only
+   * bites while dust is switched on.
+   */
+  dustDpr: 1,
 
   // Breathing room around the drawing, as a fraction of the frame.
   pad: 0.08,
@@ -1598,7 +1608,8 @@ export class GmlPlayer {
     const host = this.canvas.parentNode || this.canvas;
     const w = Math.max(host.clientWidth || this.canvas.clientWidth, 1);
     const h = Math.max(host.clientHeight || this.canvas.clientHeight, 1);
-    const dpr = Math.min(globalThis.devicePixelRatio || 1, 2);
+    const cap = this.effects.dust ? this.opts.dustDpr : 2;
+    const dpr = Math.min(globalThis.devicePixelRatio || 1, cap);
 
     this.canvas.width = Math.round(w * dpr);
     this.canvas.height = Math.round(h * dpr);
@@ -1699,6 +1710,8 @@ export class GmlPlayer {
     // Depth takes the drag gesture over, so it also has to take the touch
     // gesture the browser would otherwise spend on scrolling the page.
     if (name === 'depth' && this.canvas.style) this.canvas.style.touchAction = on ? 'none' : '';
+    // Dust changes how many device pixels the canvas is worth having.
+    if (name === 'dust') return this.resize();
     return this.render();
   }
 
