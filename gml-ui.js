@@ -3,7 +3,8 @@
  *
  * transport() is play and pause, a timeline to scrub with a tick where each
  * stroke starts, a clock and a speed button. switches() is a row of buttons
- * each for the ink mode, the effects and the data layers. Plain DOM, styled
+ * each for the ink mode, the effects, the view and the data layers, with a
+ * line underneath saying what the one under the cursor does. Plain DOM, styled
  * by gml-ui.css. Colors come from --ink, --paper, --mute and --rule on any
  * ancestor, or fall back to black on white.
  *
@@ -11,7 +12,7 @@
  * No rights reserved.
  */
 
-import { MODES, EFFECTS, LAYERS } from './gml-player.js';
+import { MODES, EFFECTS, VIEWS, LAYERS, ABOUT } from './gml-player.js';
 
 const RATES = [0.25, 0.5, 1, 2, 4];
 
@@ -105,14 +106,28 @@ export function transport(player, host) {
 }
 
 /*
- * One row each for mode, effects and layers. Mode is one-of-many, so it
- * joins into one control. Effects and layers are independent, so they stay
- * separate chips.
+ * One row each for mode, effects, view and layers. Mode is one-of-many, so
+ * it joins into one control. The rest are independent, so they stay separate
+ * chips.
  */
 export function switches(player, host) {
   host.classList.add('gml-switches');
 
+  /*
+   * One line about whichever button the cursor or the keyboard is on, and
+   * the ink mode's when it is on none of them. A name on a button is jargon
+   * until something says what it does, and there is no room to say it on the
+   * button itself.
+   */
+  const about = el('p', 'about');
+  const say = name => { about.textContent = ABOUT[name] || ''; };
+  const rest = () => say(player.mode);
+
   function row(label, names, setClass, isOn, toggle) {
+    // A renderer that has none of these leaves the row out rather than
+    // showing an empty one, which is how this file stays the same on every
+    // branch.
+    if (!names || !names.length) return;
     const wrap = el('div', 'row');
     const set = el('div', setClass);
     set.setAttribute('role', 'group');
@@ -120,6 +135,10 @@ export function switches(player, host) {
 
     const buttons = names.map(name => {
       const b = button('', name);
+      b.addEventListener('pointerenter', () => say(name));
+      b.addEventListener('focus', () => say(name));
+      b.addEventListener('pointerleave', rest);
+      b.addEventListener('blur', rest);
       set.appendChild(b);
       return b;
     });
@@ -127,6 +146,7 @@ export function switches(player, host) {
     buttons.forEach((b, i) => b.addEventListener('click', () => {
       toggle(names[i]);
       sync();
+      say(names[i]);
     }));
     sync();
 
@@ -136,7 +156,11 @@ export function switches(player, host) {
 
   row('Ink mode', MODES, 'set segmented', name => player.mode === name, name => player.setMode(name));
   row('Effects', EFFECTS, 'set', name => player.effects[name], name => player.setEffect(name, !player.effects[name]));
+  row('View', VIEWS, 'set', name => player.views[name], name => player.setView(name, !player.views[name]));
   row('Data', LAYERS, 'set', name => player.layers[name], name => player.setLayer(name, !player.layers[name]));
+
+  host.appendChild(about);
+  rest();
 
   return host;
 }

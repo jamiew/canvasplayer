@@ -26,6 +26,39 @@ export const MODES = ['marker', 'chisel', 'spray', 'outline', 'sketch', 'dyna', 
 // Combinable treatments applied on top of whichever mode is active.
 export const EFFECTS = ['ghost', 'bleed', 'jitter', 'fade'];
 
+// How the depth is looked at. Nothing to look at without depth, so this is
+// empty here and the controls leave the row out. The native-3d branch fills
+// it in, and gml-ui.js is the same file on both.
+export const VIEWS = [];
+
+/*
+ * A line on each, for the controls to show. Kept here rather than in the
+ * controls because this is where the thing itself is defined, and a name
+ * without an explanation is just jargon on a button.
+ */
+export const ABOUT = {
+  marker: 'A spline through the samples, wide where the hand was slow.',
+  chisel: 'A flat nib at a fixed angle: width comes from direction, not speed.',
+  spray: 'Aerosol. Ink lands on a Gaussian, denser where the hand lingered.',
+  outline: 'The silhouette only, the way a writer blocks a piece out.',
+  sketch: 'The line drawn twice, each pass bowed, as a hand never repeats.',
+  dyna: "A brush with mass towed on a spring. Haeberli's DynaDraw, 1989.",
+  hairline: 'The centerline alone, at one thickness.',
+  skeleton: 'The centerline with a tick at each sample, drawn as a diagram.',
+
+  ghost: 'The whole tag faint underneath, showing where it is going.',
+  bleed: 'Ink soaking outwards, so the edge falls off instead of stopping.',
+  jitter: 'Every sample nudged by noise, the same way on every repaint.',
+  fade: 'Old ink dims, leaving a comet tail behind the drawing head.',
+
+  ink: 'The strokes themselves.',
+  drips: 'Runs of ink, falling from where the line was heaviest.',
+  vectors: 'An arrow per sample for direction and speed.',
+  points: 'Every captured sample, with each stroke numbered.',
+  bounds: 'The capture screen, the grid and what the tag occupies.',
+  graph: 'Speed across the whole tag, with a playhead.'
+};
+
 export const DEFAULTS = {
   ...PREPARE,
 

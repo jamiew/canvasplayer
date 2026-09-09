@@ -15,7 +15,16 @@
   background: var(--paper, #fff);
   color: var(--mute, #6b6b6b);
   border: 1px solid var(--rule, #d9d9d9);
+  border-radius: 4px;
   cursor: pointer;
+}
+
+/* The switches are the ones you reach for, so they are a size up from the
+   transport's and shaped like the buttons in the page's own corner. */
+.gml-switches button {
+  min-height: 30px;
+  padding: 7px 12px;
+  font-size: 11.5px;
 }
 .gml-transport button:hover:not(:disabled),
 .gml-switches button:hover:not(:disabled) { border-color: var(--ink, #000); color: var(--ink, #000); }
@@ -104,6 +113,17 @@
   background: var(--ink, #000); border-color: var(--ink, #000); color: var(--paper, #fff);
 }
 
-.gml-switches .segmented { gap: 0; }
-.gml-switches .segmented button + button { margin-left: -1px; }
-.gml-switches .segmented button:hover:not(:disabled) { position: relative; z-index: 1; }
+/* The ink mode is one-of-many, but the filled pressed state says so on its
+   own. Joining the buttons into a bar fought the rounded corners and made
+   the one row that matters most look unlike all the others. */
+.gml-switches .segmented { gap: 8px 6px; }
+
+/* What the button under the cursor does. It holds its line whether or not
+   there is one, so nothing below it moves as the cursor crosses the row. */
+.gml-switches .about {
+  margin: 2px 0 0;
+  min-height: 2.6em;
+  font-size: 11.5px;
+  line-height: 1.3;
+  color: var(--mute, #6b6b6b);
+}

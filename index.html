@@ -353,7 +353,7 @@
       <a href="https://fffff.at/gml-week-graffiti-markup-language/">Graffiti Markup Language</a>
       visualization demo. <a href="https://github.com/jamiew/canvasplayer">View code on GitHub</a>
     </p>
-    <p class="renderers"><a href="./" aria-current="page">2D canvas</a><a href="native-3d/">time as depth</a><a href="threejs/">WebGL</a></p>
+    <p class="renderers"><a href="./" aria-current="page">2D Canvas</a><a href="native-3d/">Native 3D</a><a href="threejs/">three.js / WebGL</a></p>
   </header>
 
   <div class="layout">
@@ -501,7 +501,8 @@
     window.addEventListener('keydown', e => {
       if (e.key === 'Escape' && root.hasAttribute('data-full')) setFull(false);
     });
-    setFull(new URLSearchParams(document.location.search).has('full'));
+    const q = new URLSearchParams(document.location.search);
+    setFull(q.has('full') ? q.get('full') !== '0' : false);
 
     // ?id=154, ?latest or ?random, as it has always worked. Katsu by default.
     function tagFromUrl() {
