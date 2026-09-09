@@ -142,7 +142,11 @@ function repairTiming(strokes) {
 
   const times = flat.map(p => p[2]);
   const start = times[0];
-  let span = Math.max(...times) - Math.min(...times);
+  // A loop, not Math.max(...times): a long capture is tens of thousands of
+  // points, and spreading that many arguments overflows the stack.
+  let lo = times[0], hi = times[0];
+  for (const t of times) { if (t < lo) lo = t; if (t > hi) hi = t; }
+  let span = hi - lo;
 
   // Some apps wrote wall-clock time, not an offset. Tell seconds from
   // milliseconds by magnitude: a short tag has a small span either way.
@@ -335,9 +339,12 @@ function planDrips(strokes, peakSpeed, opts) {
  */
 export function prepare(tag, options) {
   const opts = { ...DEFAULTS, ...options };
-  const strokes = ((tag && tag.strokes) || []).map(s => ({
-    points: s.points.map(p => [p[0], p[1], p[2]])
-  }));
+  // Empty strokes are dropped here rather than guarded against everywhere
+  // downstream. The parser never makes one, but prepare() is public and a
+  // hand-built tag can.
+  const strokes = ((tag && tag.strokes) || [])
+    .map(s => ({ points: ((s && s.points) || []).map(p => [p[0], p[1], p[2]]) }))
+    .filter(s => s.points.length);
 
   // Quarter turn for landscape captures: (x, y) -> (y, 1 - x).
   if (tag && tag.rotate) {
