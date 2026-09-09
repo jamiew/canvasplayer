@@ -1432,7 +1432,10 @@ export class GmlPlayer {
     this.ctx = canvas.getContext('2d');
     this.opts = { ...DEFAULTS, ...options };
     this.layers = { ink: true, drips: true, vectors: false, points: false, bounds: false, graph: false };
-    this.effects = { ghost: true, bleed: false, jitter: false, fade: false, depth: false, extrude: false, stereo: false, dust: false };
+    // Depth is on by default on this branch, because it is the point of it.
+    // Off, this player is identical to the flat one and the whole thing
+    // looks broken.
+    this.effects = { ghost: true, bleed: false, jitter: false, fade: false, depth: true, extrude: false, stereo: false, dust: false };
     this.views = { cue: false, strata: false, ortho: false };
     this.mode = 'marker';
     this.playing = false;
@@ -1460,6 +1463,9 @@ export class GmlPlayer {
   orbitInput() {
     const canvas = this.canvas;
     if (!canvas.addEventListener) return;
+    // setEffect does this on a toggle, but depth can also start switched on,
+    // and then nothing would have claimed the touch gesture.
+    if (this.effects.depth && canvas.style) canvas.style.touchAction = 'none';
     let last = null;
 
     const down = e => {
