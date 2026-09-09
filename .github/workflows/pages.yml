@@ -9,9 +9,14 @@ name: Pages
 #   /threejs/      WebGL, after Evan Roth's 3D fork
 #
 # Everything is static, so there is no build step -- the copy is the build.
+# Only main deploys: the github-pages environment is protected, and a run
+# from any other branch is rejected before it can publish. That costs
+# nothing, because this job checks out all three branches at their latest
+# whenever it runs. After pushing a renderer branch, rebuild the site with
+# `gh workflow run Pages --ref main`, or the Run workflow button.
 on:
   push:
-    branches: [main, native-3d, threejs-renderer]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
