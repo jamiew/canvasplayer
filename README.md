@@ -102,6 +102,12 @@ ink outwards. `jitter` nudges every sample by noise. `fade` dims old ink.
 Time as depth, the particle dust, extrude and anaglyph live on the
 `native-3d` branch.
 
+The frame takes the window with the fullscreen button, next to the light and
+dark toggle. It is a layout mode rather than the browser's fullscreen API, so
+it works in an iframe and can be linked to with `?full`. Escape exits. The
+renderer links carry `?id=` and `?full` across, so switching renderer keeps
+showing what you were looking at.
+
 6 data layers, for checking a tag. `ink` and `drips` are the drawing.
 `vectors` are arrows for direction and speed. `points` marks every sample.
 `bounds` draws the screen, the box and a grid. `graph` plots speed over time.
