@@ -143,7 +143,20 @@
       left: 50%; bottom: 18px; transform: translateX(-50%);
       width: min(640px, calc(100vw - 36px));
     }
-    :root[data-full] .switches { top: 14px; left: 14px; width: 320px; }
+    :root[data-full] .switches {
+      top: 14px; left: 14px;
+      width: min(320px, calc(100vw - 28px));
+      /* A short window is not a reason to run the panel off the bottom. */
+      max-height: calc(100vh - 96px);
+      overflow-y: auto;
+    }
+
+    /* On a phone, fullscreen is for looking at the work. The chips want more
+       room than there is and sit right on top of the tag, so they wait
+       behind the shrink button. */
+    @media (max-width: 700px) {
+      :root[data-full] .switches { display: none; }
+    }
 
     /* Both glyphs live in the button, like the theme toggle. */
     #fullscreen .shrink { display: none; }
