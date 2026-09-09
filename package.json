@@ -1,6 +1,6 @@
 {
   "name": "canvasplayer",
-  "version": "6.3.0",
+  "version": "6.1.0-native-3d",
   "description": "Graffiti Markup Language (GML) playback on <canvas>. Parses, repairs and draws tags from #000000book. No dependencies.",
   "type": "module",
   "exports": {
