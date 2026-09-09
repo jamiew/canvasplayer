@@ -1,10 +1,17 @@
 name: Pages
 
-# Publishes the repo root as-is. Everything here is static, so there is no
-# build step -- the upload is the build.
+# Publishes every renderer from one site. Each lives on its own branch and
+# shares gml.js; this assembles them into subfolders rather than merging
+# them, so the branches stay independent:
+#
+#   /              main, the flat 2D canvas
+#   /native-3d/    2D canvas with time as depth and the dust field
+#   /threejs/      WebGL, after Evan Roth's 3D fork
+#
+# Everything is static, so there is no build step -- the copy is the build.
 on:
   push:
-    branches: [main]
+    branches: [main, native-3d, threejs-renderer]
   workflow_dispatch:
 
 permissions:
@@ -25,10 +32,50 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-      - run: npm test
+        with:
+          ref: main
+          path: src/main
+
+      # A renderer that will not pass its own tests does not get published,
+      # but a branch that does not exist yet is not a failure.
+      - uses: actions/checkout@v4
+        id: native
+        continue-on-error: true
+        with:
+          ref: native-3d
+          path: src/native-3d
+
+      - uses: actions/checkout@v4
+        id: threejs
+        continue-on-error: true
+        with:
+          ref: threejs-renderer
+          path: src/threejs
+
+      - name: Test every renderer that checked out
+        run: |
+          for dir in src/*/; do
+            [ -f "$dir/package.json" ] || continue
+            echo "== $dir"
+            (cd "$dir" && npm test)
+          done
+
+      - name: Assemble the site
+        run: |
+          mkdir -p _site
+          # main at the root, the rest in subfolders. .git goes nowhere near
+          # the artifact.
+          rsync -a --exclude '.git' src/main/ _site/
+          for name in native-3d threejs; do
+            [ -d "src/$name" ] || continue
+            rsync -a --exclude '.git' "src/$name/" "_site/$name/"
+          done
+          find _site -name '.git' -prune -exec rm -rf {} +
+          ls -la _site
+
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: '.'
+          path: _site
       - id: deployment
         uses: actions/deploy-pages@v4

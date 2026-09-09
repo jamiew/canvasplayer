@@ -8,6 +8,14 @@ the speed the hand moved. No dependencies. No build step.
 
 Demo: https://jamiew.github.io/canvasplayer
 
+Three renderers share this parser, one per branch:
+
+| | | |
+|---|---|---|
+| `main` | flat 2D canvas | [demo](https://jamiew.github.io/canvasplayer) |
+| `native-3d` | 2D canvas, time as depth, particle dust | [demo](https://jamiew.github.io/canvasplayer/native-3d/) |
+| `threejs-renderer` | WebGL, after Evan Roth's 3D fork | [demo](https://jamiew.github.io/canvasplayer/threejs/) |
+
 ## Install
 
     npm install canvasplayer
@@ -79,12 +87,20 @@ minute-long stalls. The timeline is fixed first. What changed is counted on
 Line width follows the hand. Slow is wide. Fast is thin. Ink runs from where
 the line is widest.
 
-4 modes. `marker` is a spline through the samples, wide where the hand was
+8 ink modes. `marker` is a spline through the samples, wide where the hand was
 slow. `chisel` is a flat nib at a fixed angle, so width comes from direction.
-`hairline` and `skeleton` are diagrams.
+`spray` scatters ink on a Gaussian, the way a can does, so density follows
+how long the hand lingered. `outline` draws the silhouette only, which is the
+shape a writer lays down before filling it. `sketch` draws the line twice,
+each pass bowed off the true path. `dyna` tows a brush with mass along the
+path on a spring and draws where the brush went, after Paul Haeberli's
+DynaDraw. `hairline` and `skeleton` are diagrams.
 
 4 effects. `ghost` shows the whole tag faint underneath. `bleed` soaks the
 ink outwards. `jitter` nudges every sample by noise. `fade` dims old ink.
+
+Time as depth, the particle dust, extrude and anaglyph live on the
+`native-3d` branch.
 
 6 data layers, for checking a tag. `ink` and `drips` are the drawing.
 `vectors` are arrows for direction and speed. `points` marks every sample.
@@ -112,6 +128,12 @@ Tests need no browser and no network.
 Started in 2009 for GML Week at F.A.T. Lab as a Processing.js sketch. v4
 dropped Processing.js and fixed the maths. v6 split it into modules and put
 it on npm.
+
+The drawing modes are borrowed too. `dyna` is Paul Haeberli's DynaDraw (1989),
+which filtered a mouse through a mass on a spring and drew the mass. `sketch`
+follows Jo Wood and colleagues' sketchy rendering, the method behind Handy and
+Rough.js. `spray` uses the Gaussian that airbrush simulations have used since
+the 1980s.
 
 Public domain, Jamie Wilkinson & Free Art & Technology (F.A.T.) Lab.
 No rights reserved.

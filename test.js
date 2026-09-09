@@ -285,6 +285,33 @@ describe('paint', () => {
       delete globalThis.OffscreenCanvas;
     }
   });
+
+  // The ghost is the whole tag at full length, so playing does not change
+  // it. Redrawing it every frame cost more than the ink that was moving.
+  test('draws the ghost once, then keeps it until the picture changes', () => {
+    const onLayer = [];
+    globalThis.OffscreenCanvas = class {
+      constructor() { this.ctx = loggingContext(onLayer); this.ctx.canvas = this; }
+      getContext() { return this.ctx; }
+    };
+    try {
+      const ctx = loggingContext([]);
+      const frame = { w: 400, h: 300, effects: { ghost: true }, layers: { ink: true } };
+      const fills = () => onLayer.filter(([k]) => k === 'fill').length;
+
+      paint(ctx, tag, { ...frame, time: 0 });
+      const once = fills();
+      assert.ok(once > 0, 'drawn on the first frame');
+
+      for (let i = 1; i <= 20; i++) paint(ctx, tag, { ...frame, time: i * 0.1 });
+      assert.equal(fills(), once, 'and not again while only the time moves');
+
+      paint(ctx, tag, { ...frame, time: 0, mode: 'chisel' });
+      assert.ok(fills() > once, 'a change of mode is a new picture');
+    } finally {
+      delete globalThis.OffscreenCanvas;
+    }
+  });
 });
 
 describe('GmlPlayer', () => {

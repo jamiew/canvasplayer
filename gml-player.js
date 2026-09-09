@@ -21,7 +21,7 @@ import { DEFAULTS as PREPARE, prepare, progress, noise, clamp, lerp } from './gm
 export const LAYERS = ['ink', 'drips', 'vectors', 'points', 'bounds', 'graph'];
 
 // How the ink itself is drawn. One at a time.
-export const MODES = ['marker', 'chisel', 'hairline', 'skeleton'];
+export const MODES = ['marker', 'chisel', 'spray', 'outline', 'sketch', 'dyna', 'hairline', 'skeleton'];
 
 // Combinable treatments applied on top of whichever mode is active.
 export const EFFECTS = ['ghost', 'bleed', 'jitter', 'fade'];
@@ -52,6 +52,42 @@ export const DEFAULTS = {
   nibAngle: -Math.PI / 4,
   // Points inserted per captured segment in marker mode.
   smoothSteps: 4,
+
+  /*
+   * Aerosol. What leaves a can is close enough to a Gaussian, so the ink
+   * lands as a scatter that is dense on the line and thins off the edge,
+   * with a soft band of overspray under it. Density follows the width the
+   * hand already earned, so a slow pass lays down more paint.
+   */
+  sprayDots: 17,
+  spraySpread: 0.8,
+  sprayDot: 0.95,
+  sprayHalo: 0.1,
+
+  /*
+   * Sketchy rendering: the line drawn more than once, each pass bowed off
+   * the true path, the way a hand never repeats itself exactly. After Wood
+   * et al.'s sketchy rendering for information visualization, by way of
+   * Handy and Rough.js.
+   */
+  sketchPasses: 2,
+  // Enough to see the hand wander, not enough to lose the letter. Past about
+  // 0.03 the two passes stop reading as one line and the tag comes apart.
+  sketchBow: 0.022,
+  // Samples per wave of the bow. Small numbers scribble, large ones drift.
+  sketchWave: 22,
+
+  /*
+   * A brush with mass, dragged along the captured path on a spring: what
+   * gets drawn is where the brush went, not where the hand did. It lags
+   * into a corner and coasts out of one, which is where the calligraphy
+   * comes from. Paul Haeberli's DynaDraw, 1989.
+   */
+  dynaMass: 1,
+  dynaSpring: 0.42,
+  dynaDrag: 0.55,
+  // How hard the brush's own speed thins the line. DynaDraw called it ductus.
+  dynaDuctus: 1.7,
 
   // Breathing room around the drawing, as a fraction of the frame.
   pad: 0.08,
@@ -194,13 +230,13 @@ function normal(path, i) {
  * along the normal, then back down the other side. That taper is not
  * possible with a per-segment lineWidth.
  */
-function ribbon(ctx, path) {
+function ribbon(ctx, path, outline) {
   if (!path.length) return;
 
   if (path.length === 1) {
     ctx.beginPath();
     ctx.arc(path[0][0], path[0][1], path[0][2] / 2, 0, TAU);
-    ctx.fill();
+    if (outline) ctx.stroke(); else ctx.fill();
     return;
   }
 
@@ -217,6 +253,14 @@ function ribbon(ctx, path) {
   for (let i = 1; i < left.length; i++) ctx.lineTo(left[i][0], left[i][1]);
   for (let i = right.length - 1; i >= 0; i--) ctx.lineTo(right[i][0], right[i][1]);
   ctx.closePath();
+
+  // Outline mode draws only the silhouette, which is the shape a writer
+  // lays down first and fills afterwards. It wants no cap discs: they would
+  // ring every stroke end with a circle instead of closing it.
+  if (outline) {
+    ctx.stroke();
+    return;
+  }
   ctx.fill();
 
   // Caps as discs, not arcs spliced into the outline. An arc picks its
@@ -281,6 +325,117 @@ function chisel(s, path, spread) {
   ctx.fill();
 }
 
+/*
+ * Aerosol.
+ *
+ * A can throws paint in a cone, so what reaches the wall is a Gaussian: a
+ * dense core falling off to nothing. This scatters dots on that curve, using
+ * the same stable noise as everything else so a tag sprays the same way on
+ * every repaint, then unions them in one fill. Union, not stacking: a dot
+ * landing on wet paint does not double its darkness, and density reads as
+ * coverage, which is what an aerosol actually does.
+ */
+function spray(s, p, spread) {
+  const { ctx, opts } = s;
+  const base = ctx.globalAlpha;
+
+  // Overspray first, as a soft band for the grit to sit on.
+  ctx.globalAlpha = base * opts.sprayHalo;
+  ctx.beginPath();
+  for (let i = 0; i < p.length; i++) {
+    const r = p[i][2] * 0.75;
+    ctx.moveTo(p[i][0] + r, p[i][1]);
+    ctx.arc(p[i][0], p[i][1], r, 0, TAU);
+  }
+  ctx.fill();
+
+  ctx.globalAlpha = base;
+  const dot = opts.sprayDot * Math.max(spread, 1);
+  ctx.beginPath();
+  for (let i = 0; i < p.length; i++) {
+    const half = p[i][2] / 2;
+    for (let k = 0; k < opts.sprayDots; k++) {
+      // Box-Muller, so the scatter is Gaussian rather than a flat disc.
+      const u = Math.max(noise(i * 131 + k, 21), 1e-6);
+      const a = noise(i * 131 + k, 37) * TAU;
+      const r = Math.sqrt(-2 * Math.log(u)) * opts.spraySpread * half * spread;
+      const x = p[i][0] + Math.cos(a) * r;
+      const y = p[i][1] + Math.sin(a) * r;
+      ctx.moveTo(x + dot, y);
+      ctx.arc(x, y, dot, 0, TAU);
+    }
+  }
+  ctx.fill();
+}
+
+/*
+ * The line drawn more than once, each pass wandering off the true path.
+ *
+ * The wander is a slow wave with a little grain on top, not white noise: a
+ * hand drifts away from a line and comes back, it does not vibrate. Each
+ * pass carries its own seed, so the two strokes part company and meet again
+ * the way a pen's do.
+ */
+function sketch(s, p, spread) {
+  const { ctx, opts, view } = s;
+  const amp = opts.sketchBow * view.unit * spread;
+
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  for (let pass = 0; pass < opts.sketchPasses; pass++) {
+    ctx.lineWidth = Math.max(opts.hairline * spread, 0.5);
+    ctx.beginPath();
+    for (let i = 0; i < p.length; i++) {
+      const t = i / opts.sketchWave;
+      const lo = Math.floor(t);
+      const f = t - lo;
+      const seed = 51 + pass * 13;
+      // Smoothstep between noise samples, so the bow is a wave, not a jump.
+      const bow = lerp(noise(lo, seed), noise(lo + 1, seed), f * f * (3 - 2 * f)) - 0.5;
+      const grain = noise(i, seed + 5) - 0.5;
+      const [nx, ny] = normal(p, i);
+      const len = Math.hypot(nx, ny) || 1;
+      const off = (bow * 2 + grain * 0.3) * amp;
+      const x = p[i][0] + (nx / len) * off;
+      const y = p[i][1] + (ny / len) * off;
+      if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+    }
+    ctx.stroke();
+  }
+}
+
+/*
+ * Haeberli's filtered pen: a brush with mass on a spring, towed along the
+ * captured path. What gets drawn is the brush's path, not the hand's.
+ *
+ * Hooke's law toward each sample, integrated with drag, exactly as DynaDraw
+ * did it in 1989. The brush cuts the inside of a corner and coasts past the
+ * end of a fast stroke, and the width comes off the brush's own speed rather
+ * than the hand's, so the line swells and thins on its own account.
+ *
+ * The filter only ever looks backwards, so the part of a stroke already on
+ * screen never changes as the rest of it arrives.
+ */
+function dyna(s, p) {
+  const { opts } = s;
+  if (p.length < 2) return p;
+
+  const out = [];
+  let x = p[0][0];
+  let y = p[0][1];
+  let vx = 0;
+  let vy = 0;
+  for (let i = 0; i < p.length; i++) {
+    vx = (vx + (p[i][0] - x) * opts.dynaSpring / opts.dynaMass) * opts.dynaDrag;
+    vy = (vy + (p[i][1] - y) * opts.dynaSpring / opts.dynaMass) * opts.dynaDrag;
+    x += vx;
+    y += vy;
+    const speed = Math.hypot(vx, vy);
+    out.push([x, y, Math.max(p[i][2] - speed * opts.dynaDuctus, p[i][2] * 0.15)]);
+  }
+  return out;
+}
+
 /* Centerline plus width ticks: the ribbon drawn as a technical diagram. */
 function skeleton(ctx, path, spread) {
   polyline(ctx, path, spread);
@@ -299,6 +454,13 @@ function drawStroke(s, stroke, si, from, to, partial, spread) {
 
   switch (s.mode) {
     case 'chisel': return chisel(s, p, spread);
+    case 'spray': return spray(s, p, spread);
+    case 'outline':
+      s.ctx.lineWidth = Math.max(s.opts.hairline * spread, 0.5);
+      s.ctx.lineJoin = 'round';
+      return ribbon(s.ctx, smooth(p, s.opts.smoothSteps), true);
+    case 'sketch': return sketch(s, p, spread);
+    case 'dyna': return ribbon(s.ctx, dyna(s, smooth(p, 2)));
     case 'hairline': return polyline(s.ctx, p, s.opts.hairline * spread);
     case 'skeleton': return skeleton(s.ctx, p, spread);
     // marker: a spline through the samples, so a slow hand does not staircase.
@@ -570,7 +732,10 @@ function drawSpeedGraph(s, t) {
   ctx.fillStyle = 'rgba(255,255,255,0.45)';
   ctx.font = '500 9px ' + MONO;
   ctx.fillText('SPEED', 8, y - 6);
-  ctx.fillText(tag.peakSpeed.toFixed(2) + ' u/s PEAK', view.w - 88, y - 6);
+  // Right-aligned, not offset by a guess at how wide it is. A fast tag reads
+  // in the hundreds, and the guess ran it off the edge.
+  ctx.textAlign = 'right';
+  ctx.fillText(tag.peakSpeed.toFixed(2) + ' u/s PEAK', view.w - 8, y - 6);
   ctx.restore();
 }
 
@@ -591,7 +756,26 @@ function drawSpeedGraph(s, t) {
  */
 const ghosts = new WeakMap();
 
-function ghostLayer(ctx, w, h) {
+/*
+ * Everything the ghost's picture depends on, other than the tag itself and
+ * the size of the layer, which are checked separately. Redrawing it costs
+ * more than the rest of the frame put together, so it is worth being exact
+ * about when it has to happen.
+ */
+function ghostKey(s) {
+  const o = s.opts;
+  return [
+    s.mode, s.effects.bleed ? 1 : 0, s.effects.jitter ? 1 : 0,
+    o.color, o.pad, o.smoothSteps, o.hairline, o.nib, o.nibAngle, o.jitter,
+    o.sprayDots, o.spraySpread, o.sprayDot, o.sprayHalo,
+    o.sketchPasses, o.sketchBow, o.sketchWave,
+    o.dynaMass, o.dynaSpring, o.dynaDrag, o.dynaDuctus
+  ].join('|');
+}
+
+// Returns the layer plus a context to draw on, or a null context when what
+// is already on the layer is still the right picture.
+function ghostLayer(ctx, w, h, key, tag) {
   let make;
   if (typeof OffscreenCanvas !== 'undefined') make = () => new OffscreenCanvas(1, 1);
   else if (typeof document !== 'undefined') make = () => document.createElement('canvas');
@@ -603,18 +787,25 @@ function ghostLayer(ctx, w, h) {
 
   let layer = ghosts.get(ctx);
   if (!layer) {
-    layer = make();
+    layer = { canvas: make(), key: null, tag: null };
     ghosts.set(ctx, layer);
   }
-  if (layer.width !== pw || layer.height !== ph) {
-    layer.width = pw;
-    layer.height = ph;
+  const canvas = layer.canvas;
+  if (canvas.width !== pw || canvas.height !== ph) {
+    canvas.width = pw;
+    canvas.height = ph;
+    // Resizing a canvas wipes it, so whatever was cached is gone.
+    layer.key = null;
   }
-  const lctx = layer.getContext('2d');
+  if (layer.key === key && layer.tag === tag) return { canvas, ctx: null };
+
+  layer.key = key;
+  layer.tag = tag;
+  const lctx = canvas.getContext('2d');
   lctx.setTransform(1, 0, 0, 1, 0, 0);
   lctx.clearRect(0, 0, pw, ph);
   lctx.setTransform(m.a, 0, 0, m.d, 0, 0);
-  return lctx;
+  return { canvas, ctx: lctx };
 }
 
 /* --- frame ------------------------------------------------------------- */
@@ -658,15 +849,18 @@ export function paint(ctx, tag, frame) {
   // away and leave the preview in pieces. It is a preview, not ink: it does
   // not age.
   if (layers.ink && effects.ghost) {
-    const whole = tag.strokes.map(st => ({ count: st.points.length, partial: 0 }));
-    const layer = ghostLayer(ctx, frame.w, frame.h);
+    const whole = () => tag.strokes.map(st => ({ count: st.points.length, partial: 0 }));
+    const layer = ghostLayer(ctx, frame.w, frame.h, ghostKey(s), tag);
     if (layer) {
-      drawInk({ ...s, ctx: layer }, tag.duration, whole, false);
+      // The same picture on every frame of a playthrough, so it is drawn
+      // once and kept. It used to be redrawn 60 times a second, which cost
+      // more than the ink that was actually changing.
+      if (layer.ctx) drawInk({ ...s, ctx: layer.ctx }, tag.duration, whole(), false);
       ctx.globalAlpha = opts.ghostAlpha;
       ctx.drawImage(layer.canvas, 0, 0, frame.w, frame.h);
     } else {
       ctx.globalAlpha = opts.ghostAlpha;
-      drawInk(s, tag.duration, whole, false);
+      drawInk(s, tag.duration, whole(), false);
     }
     ctx.globalAlpha = 1;
   }
@@ -791,6 +985,10 @@ export class GmlPlayer {
   }
 
   pause() {
+    // Only when something changes. Scrubbing pauses on every input event,
+    // and each one used to cancel a stale frame and announce a state the
+    // listeners were already showing.
+    if (!this.playing) return this;
     this.playing = false;
     if (this.raf) globalThis.cancelAnimationFrame(this.raf);
     this.emit('state', { playing: false });
