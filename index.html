@@ -441,9 +441,21 @@
       else player.play();
     }
 
+    /*
+     * Carry the current tag across to the other renderers. The links are
+     * static in the markup, so this rewrites them: switching renderer should
+     * keep showing what you were already looking at.
+     */
+    function syncRenderers() {
+      document.querySelectorAll('.renderers a').forEach(a => {
+        a.href = a.getAttribute('href').split('?')[0] + document.location.search;
+      });
+    }
+
     // Nothing to undo on failure: the frame keeps its status and the
     // transport stays disabled.
     function go() {
+      syncRenderers();
       const tagId = tagFromUrl();
       document.querySelectorAll('#index a[aria-current]').forEach(a => a.removeAttribute('aria-current'));
       const current = document.getElementById('link-' + tagId);
