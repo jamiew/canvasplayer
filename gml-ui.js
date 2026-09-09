@@ -124,6 +124,10 @@ export function switches(player, host) {
   const rest = () => say(player.mode);
 
   function row(label, names, setClass, isOn, toggle) {
+    // A renderer that has none of these leaves the row out rather than
+    // showing an empty one, which is how this file stays the same on every
+    // branch.
+    if (!names || !names.length) return;
     const wrap = el('div', 'row');
     const set = el('div', setClass);
     set.setAttribute('role', 'group');
