@@ -104,9 +104,9 @@ Time as depth, the particle dust, extrude and anaglyph live on the
 
 The frame takes the window with the fullscreen button, next to the light and
 dark toggle. It is a layout mode rather than the browser's fullscreen API, so
-it works in an iframe and can be linked to with `?full`. Escape exits. The
-renderer links carry `?id=` and `?full` across, so switching renderer keeps
-showing what you were looking at.
+it works in an iframe and can be linked to with `?fullscreen=1`. Escape
+exits. The renderer links carry the whole query string across, so switching
+renderer keeps showing what you were looking at.
 
 6 data layers, for checking a tag. `ink` and `drips` are the drawing.
 `vectors` are arrows for direction and speed. `points` marks every sample.

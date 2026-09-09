@@ -120,18 +120,19 @@
 
     /* The frame takes the window and everything else floats over it. Not the
        browser's fullscreen API: this works inside an iframe, leaves the
-       address bar alone, and survives a reload through ?full. Escape exits. */
-    :root[data-full] body { max-width: none; padding: 0; height: 100vh; overflow: hidden; }
-    :root[data-full] .masthead,
-    :root[data-full] #index,
-    :root[data-full] footer.page { display: none; }
-    :root[data-full] .layout { display: block; }
-    :root[data-full] .deck { width: 100vw; }
-    :root[data-full] .stage { width: 100vw; height: 100vh; aspect-ratio: auto; border: 0; }
-    :root[data-full] .topbar { position: fixed; top: 10px; right: 14px; z-index: 4; }
+       address bar alone, and survives a reload through ?fullscreen. Escape
+       exits. */
+    :root[data-fullscreen] body { max-width: none; padding: 0; height: 100vh; overflow: hidden; }
+    :root[data-fullscreen] .masthead,
+    :root[data-fullscreen] #index,
+    :root[data-fullscreen] footer.page { display: none; }
+    :root[data-fullscreen] .layout { display: block; }
+    :root[data-fullscreen] .deck { width: 100vw; }
+    :root[data-fullscreen] .stage { width: 100vw; height: 100vh; aspect-ratio: auto; border: 0; }
+    :root[data-fullscreen] .topbar { position: fixed; top: 10px; right: 14px; z-index: 4; }
 
-    :root[data-full] .transport,
-    :root[data-full] .switches {
+    :root[data-fullscreen] .transport,
+    :root[data-fullscreen] .switches {
       position: fixed; z-index: 3; margin: 0;
       padding: 10px 13px;
       background: var(--paper);
@@ -139,11 +140,11 @@
       border: 1px solid var(--rule); border-radius: 6px;
       backdrop-filter: blur(8px);
     }
-    :root[data-full] .transport {
+    :root[data-fullscreen] .transport {
       left: 50%; bottom: 18px; transform: translateX(-50%);
       width: min(640px, calc(100vw - 36px));
     }
-    :root[data-full] .switches {
+    :root[data-fullscreen] .switches {
       top: 14px; left: 14px;
       width: min(320px, calc(100vw - 28px));
       /* A short window is not a reason to run the panel off the bottom. */
@@ -155,13 +156,13 @@
        room than there is and sit right on top of the tag, so they wait
        behind the shrink button. */
     @media (max-width: 700px) {
-      :root[data-full] .switches { display: none; }
+      :root[data-fullscreen] .switches { display: none; }
     }
 
     /* Both glyphs live in the button, like the theme toggle. */
     #fullscreen .shrink { display: none; }
-    :root[data-full] #fullscreen .grow { display: none; }
-    :root[data-full] #fullscreen .shrink { display: block; }
+    :root[data-fullscreen] #fullscreen .grow { display: none; }
+    :root[data-fullscreen] #fullscreen .shrink { display: block; }
 
     /* --- masthead --------------------------------------------------------- */
 
@@ -481,28 +482,28 @@
 
     /*
      * Fullscreen. A layout mode rather than the browser's fullscreen API, so
-     * it works in an iframe and can be linked to with ?full. The controls
+     * it works in an iframe and can be linked to with ?fullscreen. The controls
      * float over the frame instead of sitting under it.
      */
     const fullBtn = document.getElementById('fullscreen');
 
     function setFull(on) {
-      root.toggleAttribute('data-full', on);
+      root.toggleAttribute('data-fullscreen', on);
       fullBtn.setAttribute('aria-pressed', String(on));
       fullBtn.setAttribute('aria-label', on ? 'Leave fullscreen' : 'Fill the window');
       const url = new URL(document.location);
-      if (on) url.searchParams.set('full', '1');
-      else url.searchParams.delete('full');
+      if (on) url.searchParams.set('fullscreen', '1');
+      else url.searchParams.delete('fullscreen');
       history.replaceState({}, '', url);
       syncRenderers();
     }
 
-    fullBtn.addEventListener('click', () => setFull(!root.hasAttribute('data-full')));
+    fullBtn.addEventListener('click', () => setFull(!root.hasAttribute('data-fullscreen')));
     window.addEventListener('keydown', e => {
-      if (e.key === 'Escape' && root.hasAttribute('data-full')) setFull(false);
+      if (e.key === 'Escape' && root.hasAttribute('data-fullscreen')) setFull(false);
     });
     const q = new URLSearchParams(document.location.search);
-    setFull(q.has('full') ? q.get('full') !== '0' : false);
+    setFull(q.has('fullscreen') ? q.get('fullscreen') !== '0' : false);
 
     // ?id=154, ?latest or ?random, as it has always worked. Katsu by default.
     function tagFromUrl() {
