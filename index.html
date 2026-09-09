@@ -85,17 +85,20 @@
 
     /* --- theme ------------------------------------------------------------- */
 
-    .topbar { display: flex; justify-content: flex-end; }
+    .topbar { display: flex; justify-content: flex-end; gap: 4px; }
 
-    #theme {
+    #theme,
+    #fullscreen {
       position: relative;
       width: 30px; height: 30px; padding: 0;
       display: grid; place-items: center;
       background: none; border: 1px solid transparent; border-radius: 4px;
       color: var(--mute); cursor: pointer;
     }
-    #theme:hover { color: var(--ink); border-color: var(--rule); }
-    #theme svg {
+    #theme:hover,
+    #fullscreen:hover { color: var(--ink); border-color: var(--rule); }
+    #theme svg,
+    #fullscreen svg {
       grid-area: 1 / 1;
       width: 16px; height: 16px;
       transition: opacity .2s ease, transform .3s cubic-bezier(.4, 0, .2, 1);
@@ -112,6 +115,41 @@
     @media (prefers-reduced-motion: reduce) {
       body, .stage, button, #theme svg { transition: none; }
     }
+
+
+    /* --- fullscreen -------------------------------------------------------- */
+
+    /* The frame takes the window and everything else floats over it. Not the
+       browser's fullscreen API: this works inside an iframe, leaves the
+       address bar alone, and survives a reload through ?full. Escape exits. */
+    :root[data-full] body { max-width: none; padding: 0; height: 100vh; overflow: hidden; }
+    :root[data-full] .masthead,
+    :root[data-full] #index,
+    :root[data-full] footer.page { display: none; }
+    :root[data-full] .layout { display: block; }
+    :root[data-full] .deck { width: 100vw; }
+    :root[data-full] .stage { width: 100vw; height: 100vh; aspect-ratio: auto; border: 0; }
+    :root[data-full] .topbar { position: fixed; top: 10px; right: 14px; z-index: 4; }
+
+    :root[data-full] .transport,
+    :root[data-full] .switches {
+      position: fixed; z-index: 3; margin: 0;
+      padding: 10px 13px;
+      background: var(--paper);
+      background: color-mix(in srgb, var(--paper) 84%, transparent);
+      border: 1px solid var(--rule); border-radius: 6px;
+      backdrop-filter: blur(8px);
+    }
+    :root[data-full] .transport {
+      left: 50%; bottom: 18px; transform: translateX(-50%);
+      width: min(640px, calc(100vw - 36px));
+    }
+    :root[data-full] .switches { top: 14px; left: 14px; width: 320px; }
+
+    /* Both glyphs live in the button, like the theme toggle. */
+    #fullscreen .shrink { display: none; }
+    :root[data-full] #fullscreen .grow { display: none; }
+    :root[data-full] #fullscreen .shrink { display: block; }
 
     /* --- masthead --------------------------------------------------------- */
 
@@ -274,6 +312,16 @@
 <body>
 
   <div class="topbar">
+    <button id="fullscreen" type="button" aria-label="Fill the window" aria-pressed="false">
+      <svg class="grow" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M9 3H3v6M15 3h6v6M9 21H3v-6M15 21h6v-6"/>
+      </svg>
+      <svg class="shrink" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M3 9h6V3M21 9h-6V3M3 15h6v6M21 15h-6v6"/>
+      </svg>
+    </button>
     <button id="theme" type="button" aria-label="Switch to dark theme">
       <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor"
            stroke-width="2" stroke-linecap="round" aria-hidden="true">
@@ -417,6 +465,31 @@
     });
 
     const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+
+    /*
+     * Fullscreen. A layout mode rather than the browser's fullscreen API, so
+     * it works in an iframe and can be linked to with ?full. The controls
+     * float over the frame instead of sitting under it.
+     */
+    const fullBtn = document.getElementById('fullscreen');
+
+    function setFull(on) {
+      root.toggleAttribute('data-full', on);
+      fullBtn.setAttribute('aria-pressed', String(on));
+      fullBtn.setAttribute('aria-label', on ? 'Leave fullscreen' : 'Fill the window');
+      const url = new URL(document.location);
+      if (on) url.searchParams.set('full', '1');
+      else url.searchParams.delete('full');
+      history.replaceState({}, '', url);
+      syncRenderers();
+    }
+
+    fullBtn.addEventListener('click', () => setFull(!root.hasAttribute('data-full')));
+    window.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && root.hasAttribute('data-full')) setFull(false);
+    });
+    setFull(new URLSearchParams(document.location.search).has('full'));
 
     // ?id=154, ?latest or ?random, as it has always worked. Katsu by default.
     function tagFromUrl() {
