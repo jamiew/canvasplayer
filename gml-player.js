@@ -40,6 +40,42 @@ export const EFFECTS = ['ghost', 'bleed', 'jitter', 'fade', 'depth', 'extrude', 
  */
 export const VIEWS = ['cue', 'strata', 'ortho'];
 
+/*
+ * A line on each, for the controls to show. Kept here rather than in the
+ * controls because this is where the thing itself is defined, and a name
+ * without an explanation is just jargon on a button.
+ */
+export const ABOUT = {
+  marker: 'A spline through the samples, wide where the hand was slow.',
+  chisel: 'A flat nib at a fixed angle: width comes from direction, not speed.',
+  spray: 'Aerosol. Ink lands on a Gaussian, denser where the hand lingered.',
+  outline: 'The silhouette only, the way a writer blocks a piece out.',
+  sketch: 'The line drawn twice, each pass bowed, as a hand never repeats.',
+  dyna: "A brush with mass towed on a spring. Haeberli's DynaDraw, 1989.",
+  hairline: 'The centerline alone, at one thickness.',
+  skeleton: 'The centerline with a tick at each sample, drawn as a diagram.',
+
+  ghost: 'The whole tag faint underneath, showing where it is going.',
+  bleed: 'Ink soaking outwards, so the edge falls off instead of stopping.',
+  jitter: 'Every sample nudged by noise, the same way on every repaint.',
+  fade: 'Old ink dims, leaving a comet tail behind the drawing head.',
+  depth: 'Each sample sits at the moment it was drawn. Drag to turn it.',
+  extrude: 'The drawing swept backwards into a solid body.',
+  stereo: 'Two eyes in red and cyan, for anaglyph glasses. Needs depth.',
+  dust: '15,000 particles on a field the drawing pushes around. Needs depth.',
+
+  cue: 'What is far off goes dim, so depth reads in a still frame.',
+  strata: 'One flat plane per stroke, so a tag comes apart into its passes.',
+  ortho: 'Parallel projection: a technical drawing, not a photograph.',
+
+  ink: 'The strokes themselves.',
+  drips: 'Runs of ink, falling from where the line was heaviest.',
+  vectors: 'An arrow per sample for direction and speed.',
+  points: 'Every captured sample, with each stroke numbered.',
+  bounds: 'The capture screen, the grid and what the tag occupies.',
+  graph: 'Speed across the whole tag, with a playhead.'
+};
+
 export const DEFAULTS = {
   ...PREPARE,
 
