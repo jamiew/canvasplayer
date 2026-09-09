@@ -115,7 +115,8 @@ tag is clutter under a dust field.
 
 The frame takes the window with the fullscreen button, next to the light and
 dark toggle. It is a layout mode rather than the browser's fullscreen API, so
-it works in an iframe and can be linked to with `?full`. Escape exits.
+it works in an iframe and can be linked to with `?fullscreen=1`. Escape
+exits.
 
 `dust` is a simulation, not a function of the clock, so it cannot live inside
 `paint()`. The player owns a `Dust`, steps it, and passes it in. Seeking or
