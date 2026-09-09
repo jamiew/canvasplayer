@@ -99,7 +99,7 @@ carrying its own depth, so a tag built up in passes comes apart into those
 passes. `ortho` drops perspective for a parallel projection: a technical
 drawing rather than a photograph.
 
-7 effects. `ghost` shows the whole tag faint underneath. `bleed` soaks the
+8 effects. `ghost` shows the whole tag faint underneath. `bleed` soaks the
 ink outwards. `jitter` nudges every sample by noise. `fade` dims old ink.
 `depth` puts each sample at the moment it was drawn, so the tag has real
 thickness. Drag to turn it, scroll to move in and out. `extrude` sweeps the
@@ -108,6 +108,14 @@ drawing backwards into a solid body, along the time axis when depth is on.
 glasses; it needs depth. `dust` puts 15,000 particles on a vector field the
 drawing pushes around, each trailing a line back to where it started. Every
 one of them works with every mode and with the drips.
+
+This branch opens with `depth` and `dust` on and `ghost` off, because
+between them the first two are the point of it, and a grey copy of the whole
+tag is clutter under a dust field.
+
+The frame takes the window with the fullscreen button, next to the light and
+dark toggle. It is a layout mode rather than the browser's fullscreen API, so
+it works in an iframe and can be linked to with `?full`. Escape exits.
 
 `dust` is a simulation, not a function of the clock, so it cannot live inside
 `paint()`. The player owns a `Dust`, steps it, and passes it in. Seeking or

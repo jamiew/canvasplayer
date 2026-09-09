@@ -17,8 +17,8 @@ canvasplayer on this branch is 3 ES modules and an npm package.
 
 ## Decisions to confirm
 
-- Version is 6.2.0. Modes and effects were only added to, so the API grew
-  without breaking.
+- Version is 6.1.0-native-3d, to say which renderer it is rather than to
+  claim a release.
 - The license field says Unlicense. The code says public domain, no rights
   reserved. Change it if you want CC0 instead.
 - The name `canvasplayer` is free on npm.
