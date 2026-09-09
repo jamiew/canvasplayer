@@ -152,7 +152,11 @@ export const DEFAULTS = {
   // Steps in the trail's fade. The trail runs bright at the particle to
   // nothing at its origin, and canvas has no per-vertex color, so it is
   // drawn as a few batched passes instead of one gradient each.
-  dustTrailSteps: 3,
+  dustTrailSteps: 2,
+  // Trails shorter than this many pixels are not drawn. Most of the grid
+  // barely twitches, and a sub-pixel line costs a full path operation to
+  // put nothing on the screen.
+  dustMinTrail: 0.9,
   // The dust field is about twice the size of the tag, so with it on the
   // drawing has to sit back to leave the field somewhere to be. Without
   // this the tag fills the frame and all its dust blows off the edges.
@@ -1001,6 +1005,38 @@ function drawDust(s, dust, fade) {
   const { ctx, opts, view } = s;
   if (!dust || !dust.live) return;
 
+  /*
+   * Project every awake particle once, into a scratch buffer, and let all
+   * the passes read that.
+   *
+   * Each trail used to be projected again on every pass -- twice per pass,
+   * for its position and its origin -- which on a full grid came to ninety
+   * thousand projections a frame for a picture that only needed fifteen
+   * thousand. This is the same drawing for a sixth of the arithmetic.
+   *
+   * A particle whose trail is shorter than a pixel is dropped here too. On
+   * a 144 by 108 grid most of them have barely twitched, and a sub-pixel
+   * line costs a whole path operation to draw nothing.
+   */
+  const screen = dust.screen || (dust.screen = new Float32Array(dust.count * 5));
+  const minTrail = opts.dustMinTrail;
+  let n = 0;
+  for (let k = 0; k < dust.count; k++) {
+    if (!dust.woke[k]) continue;
+    const z = dust.wokeAt[k];
+    const [px, py, , scale] = view.at(dust.posX[k], dust.posY[k], z);
+    const [ox, oy] = view.at(dust.oriX[k], dust.oriY[k], z);
+    if (Math.abs(px - ox) < minTrail && Math.abs(py - oy) < minTrail) continue;
+    const i = n * 5;
+    screen[i] = px;
+    screen[i + 1] = py;
+    screen[i + 2] = ox;
+    screen[i + 3] = oy;
+    screen[i + 4] = scale;
+    n++;
+  }
+  if (!n) return;
+
   const steps = Math.max(1, Math.round(opts.dustTrailSteps));
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
@@ -1009,16 +1045,17 @@ function drawDust(s, dust, fade) {
   ctx.lineWidth = 1;
 
   for (let pass = 0; pass < steps; pass++) {
-    // Pass 0 is the whole trail, the last is just the tip.
+    // Pass 0 is the whole trail, the last is just the tip. Stacked additively
+    // they come out as a ramp, which is the nearest canvas gets to shading a
+    // line along its own length.
     const from = pass / steps;
     ctx.globalAlpha = (opts.dustTrail / steps) * fade;
     ctx.beginPath();
-    for (let k = 0; k < dust.count; k++) {
-      if (!dust.woke[k]) continue;
-      const z = dust.wokeAt[k];
-      const [px, py] = view.at(dust.posX[k], dust.posY[k], z);
-      const [ox, oy] = view.at(dust.oriX[k], dust.oriY[k], z);
-      ctx.moveTo(lerp(ox, px, from), lerp(oy, py, from));
+    for (let k = 0; k < n; k++) {
+      const i = k * 5;
+      const px = screen[i];
+      const py = screen[i + 1];
+      ctx.moveTo(px + (screen[i + 2] - px) * (1 - from), py + (screen[i + 3] - py) * (1 - from));
       ctx.lineTo(px, py);
     }
     ctx.stroke();
@@ -1026,11 +1063,10 @@ function drawDust(s, dust, fade) {
 
   ctx.globalAlpha = opts.dustAlpha * fade;
   ctx.beginPath();
-  for (let k = 0; k < dust.count; k++) {
-    if (!dust.woke[k]) continue;
-    const [px, py, , scale] = view.at(dust.posX[k], dust.posY[k], dust.wokeAt[k]);
-    const r = Math.max(opts.dustDot * view.unit * scale, 0.6);
-    ctx.rect(px - r, py - r, r * 2, r * 2);
+  for (let k = 0; k < n; k++) {
+    const i = k * 5;
+    const r = Math.max(opts.dustDot * view.unit * screen[i + 4], 0.6);
+    ctx.rect(screen[i] - r, screen[i + 1] - r, r * 2, r * 2);
   }
   ctx.fill();
   ctx.restore();
