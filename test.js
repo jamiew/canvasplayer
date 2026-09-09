@@ -124,6 +124,20 @@ describe('prepare', () => {
     assert.equal(p.pointCount, 0);
     assert.ok(p.duration > 0, 'still has a timeline to scrub');
   });
+
+  test('drops an empty stroke', () => {
+    // The parser never makes one, but prepare() is public.
+    const p = prepare({ strokes: [{ points: [] }, { points: [[0.5, 0.5, 0]] }] });
+    assert.equal(p.strokes.length, 1);
+    assert.equal(p.pointCount, 1);
+  });
+
+  test('survives a capture too long to spread', () => {
+    // Math.max(...times) overflowed the stack on a tag this size.
+    const points = Array.from({ length: 200000 }, (_, i) => [0.5, 0.5, i / 1000]);
+    const p = prepare({ strokes: [{ points }] });
+    assert.ok(near(p.duration, 199.999, 1e-3), 'timed from the last sample');
+  });
 });
 
 describe('progress', () => {

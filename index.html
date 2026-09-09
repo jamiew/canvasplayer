@@ -516,14 +516,28 @@
       player.pause().load(data);
 
       const tag = player.tag;
-      readout.innerHTML =
-        '<b>#' + tag.id + '</b>' +
-        (tag.app ? '<span class="sep">/</span>' + tag.app : '') +
-        '<span class="sep">/</span>' + tag.strokes.length +
-        (tag.strokes.length === 1 ? ' stroke' : ' strokes') +
-        '<span class="sep">/</span>' + tag.pointCount + ' pts' +
-        '<span class="sep">/</span>' + secs(tag.duration) + 's' +
-        (tag.rotate ? '<span class="sep">/</span>captured sideways' : '');
+      // Built as elements, not markup: `app` is whatever the capturing tool
+      // called itself, and anyone can publish a tag.
+      readout.replaceChildren();
+      const part = (text, el) => {
+        if (readout.childNodes.length) {
+          const sep = document.createElement('span');
+          sep.className = 'sep';
+          sep.textContent = '/';
+          readout.append(sep);
+        }
+        const node = document.createElement(el || 'span');
+        node.textContent = text;
+        readout.append(node);
+      };
+      part('#' + tag.id, 'b');
+      if (tag.app) part(tag.app);
+      part(tag.strokes.length + (tag.strokes.length === 1 ? ' stroke' : ' strokes'));
+      part(tag.pointCount + ' pts');
+      part(secs(tag.duration) + 's');
+      if (tag.rotate) part('captured sideways');
+
+      syncRenderers();
 
       if (still) player.seek(tag.duration);
       else player.play();
@@ -535,13 +549,24 @@
      * keep showing what you were already looking at.
      */
     function syncRenderers() {
+      const params = new URLSearchParams(document.location.search);
+      // ?random and ?latest would each resolve again on the other renderer
+      // and land on a different tag, so once one has loaded the links name it.
+      if (player.tag && player.tag.id) {
+        params.delete('latest');
+        params.delete('random');
+        params.set('id', player.tag.id);
+      }
+      const query = params.toString();
       document.querySelectorAll('.renderers a').forEach(a => {
-        a.href = a.getAttribute('href').split('?')[0] + document.location.search;
+        a.href = a.getAttribute('href').split('?')[0] + (query ? '?' + query : '');
       });
     }
 
     // Nothing to undo on failure: the frame keeps its status and the
     // transport stays disabled.
+    let wanted = 0;
+
     function go() {
       syncRenderers();
       const tagId = tagFromUrl();
@@ -551,10 +576,15 @@
       status.hidden = false;
       status.textContent = 'Loading #' + tagId;
 
+      // Click two tags quickly and the answers can come back in either
+      // order. Only the newest request is allowed to change the page.
+      const mine = ++wanted;
       load(tagId).then(data => {
+        if (mine !== wanted) return;
         if (data.strokes.length) show(data);
         else status.textContent = '#' + tagId + ' has no stroke data';
       }, err => {
+        if (mine !== wanted) return;
         status.textContent = err.message;
       });
     }
