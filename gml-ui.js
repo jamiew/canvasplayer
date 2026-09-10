@@ -60,8 +60,19 @@ export function transport(player, host) {
   scrub.setAttribute('aria-label', 'Playback position');
   timeline.append(el('div', 'rail'), fill, ticks, scrub);
 
-  const clock = el('span', 'clock', '00.00 / 00.00');
-  const rate = button('rate', '1&times;');
+  const clock = el('span', 'clock');
+  const clockValue = el('span', '', '00.00 / 00.00');
+  const clockSpace = el('span');
+  clockSpace.setAttribute('aria-hidden', 'true');
+  clock.append(clockValue, clockSpace);
+  const rate = button('rate');
+  const rateValue = el('span', '', '1&times;');
+  rate.appendChild(rateValue);
+  for (const value of RATES) {
+    const space = el('span', '', value + '×');
+    space.setAttribute('aria-hidden', 'true');
+    rate.appendChild(space);
+  }
 
   host.append(play, timeline, clock, rate);
 
@@ -87,13 +98,13 @@ export function transport(player, host) {
     const at = s.duration > 0 ? time / s.duration : 0;
     if (!scrubbing) scrub.value = Math.round(at * 1000);
     fill.style.width = (at * 100).toFixed(2) + '%';
-    clock.textContent = secs(time) + ' / ' + secs(s.duration);
+    clockValue.textContent = secs(time) + ' / ' + secs(s.duration);
   };
   const state = s => {
     play.toggleAttribute('data-playing', s.playing);
     play.setAttribute('aria-label', s.playing ? 'Pause' : 'Play');
   };
-  const config = () => { rate.textContent = player.opts.speed + '×'; };
+  const config = () => { rateValue.textContent = player.opts.speed + '×'; };
   player.on('frame', frame);
   player.on('state', state);
   player.on('config', config);
@@ -110,6 +121,7 @@ export function transport(player, host) {
     play.disabled = rate.disabled = !tag.strokes.length;
     scrub.disabled = !tag.strokes.length || tag.duration <= 0;
     scrubbing = false;
+    clockSpace.textContent = secs(tag.duration) + ' / ' + secs(tag.duration);
     frame({ time: player.time, duration: player.duration });
   };
   player.on('load', load);
@@ -155,13 +167,16 @@ export function switches(player, host) {
   const ABOUT = can.about || {};
 
   /*
-   * One line about whichever button the cursor or the keyboard is on, and
-   * the ink mode's when it is on none of them. A name on a button is jargon
+   * Describe whichever button the cursor or the keyboard is on, and the
+   * ink mode when it is on none of them. A name on a button is jargon
    * until something says what it does, and there is no room to say it on the
    * button itself.
    */
   const about = el('p', 'about');
-  const say = name => { about.textContent = ABOUT[name] || ''; };
+  const descriptions = new Map();
+  const say = name => descriptions.forEach((description, key) => {
+    description.setAttribute('aria-hidden', String(key !== name));
+  });
   let describing = false;
   const rest = () => {
     describing = false;
@@ -181,6 +196,13 @@ export function switches(player, host) {
 
     const handlers = [];
     const buttons = names.map(name => {
+      if (ABOUT[name] && !descriptions.has(name)) {
+        const description = el('span');
+        description.textContent = ABOUT[name];
+        description.setAttribute('aria-hidden', 'true');
+        descriptions.set(name, description);
+        about.appendChild(description);
+      }
       const b = button('', name);
       const describe = () => {
         describing = true;

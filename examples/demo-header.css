@@ -1,0 +1,25 @@
+/* Shared masthead for the demo and its iframe gallery. */
+.masthead { text-align: center; margin-bottom: 26px; }
+
+h1 {
+  margin: 0;
+  font-size: clamp(1.9rem, 5.5vw, 2.6rem);
+  font-weight: 700;
+  letter-spacing: -0.045em;
+  line-height: 1;
+}
+
+/* Switching renderer reloads the page: a canvas cannot change its
+   context type after either renderer has claimed it. */
+.renderers { margin: 10px 0 0; font-size: 12px; color: var(--mute); }
+.renderers a { color: var(--mute); text-decoration: none; margin: 0 6px; }
+.renderers a:hover { color: var(--ink); text-decoration: underline; }
+/* Selection must not widen a label when the renderer finishes loading. */
+.renderers a[aria-current] { color: var(--ink); text-decoration: underline; }
+
+.tagline {
+  margin: 12px auto 0;
+  max-width: 72ch;
+  font: 400 13px/1.6 var(--sans);
+  color: var(--mute);
+}

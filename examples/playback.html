@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>canvasplayer: animation only</title>
+<style>
+  html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #000; }
+  .stage { width: 100%; height: 100%; }
+  canvas { display: block; }
+  #status {
+    position: absolute; inset: 0; display: grid; place-items: center;
+    margin: 0; padding: 24px; color: #aaa; text-align: center;
+    font: 13px/1.5 "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
+  }
+  #status[hidden] { display: none; }
+</style>
+<div class="stage"><canvas aria-label="Graffiti drawing from tag 100" role="img"></canvas></div>
+<p id="status" role="status">Loading tag</p>
+<script type="module">
+  import { parse } from '../gml.js';
+  import { GmlPlayer } from '../gml-player.js';
+
+  const status = document.getElementById('status');
+  try {
+    // Bundled real tag data: no external API or CORS setup needed.
+    const response = await fetch('./tag.json');
+    if (!response.ok) throw new Error('Could not load tag: HTTP ' + response.status);
+    const json = await response.json();
+    const player = new GmlPlayer(document.querySelector('canvas'), parse(json.gml, json.id));
+    const motion = matchMedia('(prefers-reduced-motion: reduce)');
+    const updateMotion = () => {
+      if (motion.matches) {
+        player.pause();
+        player.seek(player.duration);
+      } else player.play();
+    };
+    motion.addEventListener('change', updateMotion);
+    updateMotion();
+    status.hidden = true;
+  } catch (error) {
+    status.textContent = error.message;
+  }
+</script>
+<!-- Public domain, Jamie Wilkinson & Free Art & Technology (F.A.T.) Lab. No rights reserved. -->
+</html>

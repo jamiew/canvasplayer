@@ -21,10 +21,10 @@ import { DEFAULTS as PREPARE, prepare, progress, noise, clamp, lerp } from './gm
 export const LAYERS = ['ink', 'drips', 'vectors', 'points', 'bounds', 'graph'];
 
 // How the ink itself is drawn. One at a time.
-export const MODES = ['marker', 'chisel', 'spray', 'outline', 'sketch', 'dyna', 'hairline', 'skeleton'];
+export const MODES = ['marker', 'chisel', 'outline', 'dyna', 'hairline', 'skeleton'];
 
 // Combinable treatments applied on top of whichever mode is active.
-export const EFFECTS = ['ghost', 'bleed', 'jitter', 'fade'];
+export const EFFECTS = ['ghost', 'smooth', 'bleed', 'jitter', 'fade'];
 
 /*
  * A line on each, for the controls to show. Kept here rather than in the
@@ -32,16 +32,15 @@ export const EFFECTS = ['ghost', 'bleed', 'jitter', 'fade'];
  * without an explanation is just jargon on a button.
  */
 export const ABOUT = {
-  marker: 'A spline through the samples, wide where the hand was slow.',
+  marker: 'A ribbon through the samples, wide where the hand was slow.',
   chisel: 'A flat nib at a fixed angle: width comes from direction, not speed.',
-  spray: 'Aerosol. Ink lands on a Gaussian, denser where the hand lingered.',
   outline: 'The silhouette only, the way a writer blocks a piece out.',
-  sketch: 'The line drawn twice, each pass bowed, as a hand never repeats.',
   dyna: "A brush with mass towed on a spring. Haeberli's DynaDraw, 1989.",
   hairline: 'The centerline alone, at one thickness.',
   skeleton: 'The centerline with a tick at each sample, drawn as a diagram.',
 
   ghost: 'The whole tag faint underneath, showing where it is going.',
+  smooth: 'Curve marker and outline through the samples instead of joining them with straight lines.',
   bleed: 'Ink soaking outwards, so the edge falls off instead of stopping.',
   jitter: 'Every sample nudged by noise, the same way on every repaint.',
   fade: 'Old ink dims, leaving a comet tail behind the drawing head.',
@@ -78,32 +77,8 @@ export const DEFAULTS = {
   // A flat nib held at a fixed angle. Width comes from direction, not speed.
   nib: 0.05,
   nibAngle: -Math.PI / 4,
-  // Points inserted per captured segment in marker mode.
+  // Subdivisions per captured segment when the smooth effect is enabled.
   smoothSteps: 4,
-
-  /*
-   * Aerosol. What leaves a can is close enough to a Gaussian, so the ink
-   * lands as a scatter that is dense on the line and thins off the edge,
-   * with a soft band of overspray under it. Density follows the width the
-   * hand already earned, so a slow pass lays down more paint.
-   */
-  sprayDots: 17,
-  spraySpread: 0.8,
-  sprayDot: 0.95,
-  sprayHalo: 0.1,
-
-  /*
-   * Sketchy rendering: the line drawn more than once, each pass bowed off
-   * the true path, the way a hand never repeats itself exactly. After Wood
-   * et al.'s sketchy rendering for information visualization, by way of
-   * Handy and Rough.js.
-   */
-  sketchPasses: 2,
-  // Enough to see the hand wander, not enough to lose the letter. Past about
-  // 0.03 the two passes stop reading as one line and the tag comes apart.
-  sketchBow: 0.022,
-  // Samples per wave of the bow. Small numbers scribble, large ones drift.
-  sketchWave: 22,
 
   /*
    * A brush with mass, dragged along the captured path on a spring: what
@@ -242,8 +217,67 @@ function smooth(path, steps) {
   return out;
 }
 
+function catmullTangent(a, b, c, d, t) {
+  return 0.5 * ((c - a) + 2 * (2 * a - 5 * b + 4 * c - d) * t +
+    3 * (3 * b - a - 3 * c + d) * t * t);
+}
+
+function ribbonPoint(x, y, width, dx, dy) {
+  const length = Math.hypot(dx, dy);
+  const r = width / 2;
+  return [x, y, width, length ? -dy / length * r : 0, length ? dx / length * r : r];
+}
+
+/*
+ * Tag 100 has only five corners per stroke. Smoothing its growing prefix
+ * treated the moving tip as a new control point, bending ink already down.
+ * Read the recorded neighbours instead, then reveal a fixed curve up to
+ * the playhead. Normals also use those neighbours, not the moving endpoint.
+ * The same rule keeps straight ribbon joins still while the next side grows.
+ */
+function ribbonPath(s, stroke, si, from, to, partial, spread) {
+  const start = Math.max(0, from - 1);
+  const controls = path(s, stroke, si, start, Math.min(stroke.points.length, to + 2), 0, spread);
+  if (from >= to) return [];
+  const first = controls[from - start];
+  first.push(...normal(controls, from - start));
+  const out = [first];
+  const curved = s.effects.smooth && stroke.points.length > 2;
+  const steps = curved ? Math.max(1, Math.floor(s.opts.smoothSteps)) : 1;
+  const end = to < stroke.points.length && partial > 0 ? to : to - 1;
+
+  for (let i = from; i < end; i++) {
+    const a = controls[Math.max(0, i - start - 1)];
+    const b = controls[i - start];
+    const c = controls[i - start + 1];
+    const d = controls[Math.min(controls.length - 1, i - start + 2)];
+    const stop = i === to - 1 ? partial : 1;
+    for (let k = 1; k <= steps; k++) {
+      const t = Math.min(k / steps, stop);
+      if (curved) {
+        out.push(ribbonPoint(
+          catmull(a[0], b[0], c[0], d[0], t),
+          catmull(a[1], b[1], c[1], d[1], t),
+          lerp(b[2], c[2], t),
+          catmullTangent(a[0], b[0], c[0], d[0], t),
+          catmullTangent(a[1], b[1], c[1], d[1], t)
+        ));
+      } else if (t === 1) {
+        c.push(...normal(controls, i - start + 1));
+        out.push(c);
+      } else {
+        out.push(ribbonPoint(lerp(b[0], c[0], t), lerp(b[1], c[1], t),
+          lerp(b[2], c[2], t), c[0] - b[0], c[1] - b[1]));
+      }
+      if (t === stop) break;
+    }
+  }
+  return out;
+}
+
 // The normal at sample i, scaled to half the width there.
 function normal(path, i) {
+  if (path[i].length > 3) return [path[i][3], path[i][4]];
   // A stationary nib has no tangent; use a vertical width tick.
   if (path.length === 1) return [0, path[0][2] / 2];
   const prev = path[Math.max(i - 1, 0)];
@@ -371,149 +405,6 @@ function chisel(s, path, spread) {
   ctx.fill();
 }
 
-// Retain the written aerosol prefix as native paths, not another bitmap.
-// Append new samples; keep the moving tip out of the cache. One union fill
-// preserves overlap opacity, unlike compositing separately cached chunks.
-const sprays = new WeakMap();
-
-function sprayCache(s, stroke, spread) {
-  const key = ghostKey(s) + '|' + s.view.w + '|' + s.view.h;
-  let entry = sprays.get(s.ctx);
-  if (!entry || entry.tag !== s.tag || entry.key !== key) {
-    entry = { tag: s.tag, key, strokes: new Map() };
-    sprays.set(s.ctx, entry);
-  }
-  let cache = entry.strokes.get(stroke);
-  if (!cache) entry.strokes.set(stroke, cache = new Map());
-  let paths = cache.get(spread);
-  if (!paths) cache.set(spread, paths = { count: 0, halo: new Path2D(), ink: new Path2D() });
-  return paths;
-}
-
-/*
- * Aerosol.
- *
- * A can throws paint in a cone, so what reaches the wall is a Gaussian: a
- * dense core falling off to nothing. This scatters dots on that curve, using
- * the same stable noise as everything else so a tag sprays the same way on
- * every repaint, then unions them in one fill. Union, not stacking: a dot
- * landing on wet paint does not double its darkness, and density reads as
- * coverage, which is what an aerosol actually does.
- */
-function spray(s, stroke, si, from, to, partial, spread) {
-  const { ctx, opts } = s;
-  const base = ctx.globalAlpha;
-  const paths = from === 0 && typeof Path2D !== 'undefined' ? sprayCache(s, stroke, spread) : null;
-
-  // A slice past the start, a backwards seek or a fade slice that shrank: a
-  // native prefix cannot be cut, so this frame is built from scratch. The
-  // cache keeps what it has for when the head catches up. Rebuilding it
-  // instead threw it away every few frames with fade on, as the slice
-  // boundaries moved.
-  if (!paths || paths.count > to) {
-    const p = path(s, stroke, si, from, to, partial, spread);
-    if (!p.length) return;
-    ctx.globalAlpha = base * opts.sprayHalo;
-    ctx.beginPath();
-    sprayHalo(ctx, p);
-    ctx.fill();
-    ctx.globalAlpha = base;
-    ctx.beginPath();
-    sprayInk(ctx, p, opts, spread, from);
-    ctx.fill();
-    return;
-  }
-
-  if (paths.count < to) {
-    const p = path(s, stroke, si, paths.count, to, 0, spread);
-    sprayHalo(paths.halo, p);
-    sprayInk(paths.ink, p, opts, spread, paths.count);
-    paths.count = to;
-  }
-  let { halo, ink } = paths;
-  if (partial > 0 && to > 0 && to < stroke.points.length) {
-    // Clone the native prefix only when there is an interpolated tip. It
-    // must share the fill, but must not become permanent ink on the next frame.
-    const tip = path(s, stroke, si, to - 1, to, partial, spread).slice(1);
-    halo = new Path2D(halo);
-    ink = new Path2D(ink);
-    sprayHalo(halo, tip);
-    sprayInk(ink, tip, opts, spread, to);
-  }
-  ctx.globalAlpha = base * opts.sprayHalo;
-  ctx.fill(halo);
-  ctx.globalAlpha = base;
-  ctx.fill(ink);
-}
-
-function sprayHalo(target, p) {
-  for (let i = 0; i < p.length; i++) {
-    const r = p[i][2] * 0.75;
-    target.moveTo(p[i][0] + r, p[i][1]);
-    target.arc(p[i][0], p[i][1], r, 0, TAU);
-  }
-}
-
-function sprayInk(target, p, opts, spread, at) {
-  const dot = opts.sprayDot * Math.max(spread, 1);
-  for (let i = 0; i < p.length; i++) {
-    const half = p[i][2] / 2;
-    for (let k = 0; k < opts.sprayDots; k++) {
-      // Box-Muller, so the scatter is Gaussian rather than a flat disc.
-      // Absolute sample identity survives both fade slices and cached prefixes.
-      const n = (at + i) * 131 + k;
-      const u = Math.max(noise(n, 21), 1e-6);
-      const a = noise(n, 37) * TAU;
-      const r = Math.sqrt(-2 * Math.log(u)) * opts.spraySpread * half * spread;
-      const x = p[i][0] + Math.cos(a) * r;
-      const y = p[i][1] + Math.sin(a) * r;
-      target.moveTo(x + dot, y);
-      target.arc(x, y, dot, 0, TAU);
-    }
-  }
-}
-
-/*
- * The line drawn more than once, each pass wandering off the true path.
- *
- * The wander is a slow wave with a little grain on top, not white noise: a
- * hand drifts away from a line and comes back, it does not vibrate. Each
- * pass carries its own seed, so the two strokes part company and meet again
- * the way a pen's do.
- */
-function sketch(s, p, spread, at) {
-  const { ctx, opts, view } = s;
-  const amp = opts.sketchBow * view.unit * spread;
-
-  ctx.lineJoin = 'round';
-  ctx.lineCap = 'round';
-  for (let pass = 0; pass < opts.sketchPasses; pass++) {
-    ctx.lineWidth = Math.max(opts.hairline * spread, 0.5);
-    ctx.beginPath();
-    for (let i = 0; i < p.length; i++) {
-      // Absolute, for the same reason spray's is: a slice must not restart
-      // the wave, or drawn ink wanders when fade is on.
-      const t = (at + i) / opts.sketchWave;
-      const lo = Math.floor(t);
-      const f = t - lo;
-      const seed = 51 + pass * 13;
-      // Smoothstep between noise samples, so the bow is a wave, not a jump.
-      const bow = lerp(noise(lo, seed), noise(lo + 1, seed), f * f * (3 - 2 * f)) - 0.5;
-      const grain = noise(at + i, seed + 5) - 0.5;
-      const [nx, ny] = normal(p, i);
-      const len = Math.hypot(nx, ny) || 1;
-      const off = (bow * 2 + grain * 0.3) * amp;
-      const x = p[i][0] + (nx / len) * off;
-      const y = p[i][1] + (ny / len) * off;
-      if (p.length === 1) {
-        // Each pass leaves its own pen dot, with the same wandering offset.
-        ctx.arc(x, y, ctx.lineWidth / 2, 0, TAU);
-      } else if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
-    }
-    if (p.length === 1) ctx.fill(); else ctx.stroke();
-  }
-}
-
 /*
  * Haeberli's filtered pen: a brush with mass on a spring, towed along the
  * captured path. What gets drawn is the brush's path, not the hand's.
@@ -569,9 +460,10 @@ const DYNA_WARMUP = 32;
 
 function drawStroke(s, stroke, si, from, to, partial, spread) {
   if (s.mode === 'dyna') return drawDyna(s, stroke, si, from, to, partial, spread);
-  if (s.mode === 'spray') return spray(s, stroke, si, from, to, partial, spread);
 
-  const p = path(s, stroke, si, from, to, partial, spread);
+  const p = s.mode === 'chisel' || s.mode === 'hairline' || s.mode === 'skeleton'
+    ? path(s, stroke, si, from, to, partial, spread)
+    : ribbonPath(s, stroke, si, from, to, partial, spread);
   if (!p.length) return;
 
   switch (s.mode) {
@@ -579,12 +471,10 @@ function drawStroke(s, stroke, si, from, to, partial, spread) {
     case 'outline':
       s.ctx.lineWidth = Math.max(s.opts.hairline * spread, 0.5);
       s.ctx.lineJoin = 'round';
-      return ribbon(s.ctx, smooth(p, s.opts.smoothSteps), true);
-    case 'sketch': return sketch(s, p, spread, from);
+      return ribbon(s.ctx, p, true);
     case 'hairline': return polyline(s.ctx, p, s.opts.hairline * spread);
     case 'skeleton': return skeleton(s.ctx, p, spread);
-    // marker: a spline through the samples, so a slow hand does not staircase.
-    default: return ribbon(s.ctx, smooth(p, s.opts.smoothSteps));
+    default: return ribbon(s.ctx, p);
   }
 }
 
@@ -899,10 +789,8 @@ const ghosts = new WeakMap();
 function ghostKey(s) {
   const o = s.opts;
   return [
-    s.mode, s.effects.bleed ? 1 : 0, s.effects.jitter ? 1 : 0,
+    s.mode, s.effects.bleed ? 1 : 0, s.effects.jitter ? 1 : 0, s.effects.smooth ? 1 : 0,
     o.color, o.pad, o.smoothSteps, o.hairline, o.nib, o.nibAngle, o.jitter,
-    o.sprayDots, o.spraySpread, o.sprayDot, o.sprayHalo,
-    o.sketchPasses, o.sketchBow, o.sketchWave,
     o.dynaMass, o.dynaSpring, o.dynaDrag, o.dynaDuctus
   ].join('|');
 }
@@ -1026,7 +914,7 @@ export class GmlPlayer {
     this.ctx = canvas.getContext('2d');
     this.opts = { ...DEFAULTS, ...options };
     this.layers = { ink: true, drips: true, vectors: false, points: false, bounds: false, graph: false };
-    this.effects = { ghost: true, bleed: false, jitter: false, fade: false };
+    this.effects = { ghost: true, smooth: false, bleed: false, jitter: false, fade: false };
     this.mode = 'marker';
     // What the controls may offer. Asked of the player rather than imported,
     // so gml-ui.js can drive a renderer that has none of these.
@@ -1205,7 +1093,6 @@ export class GmlPlayer {
     if (typeof window !== 'undefined') window.removeEventListener('resize', this.onResize);
     if (this.densityQuery) this.densityQuery.removeEventListener('change', this.onDensity);
     ghosts.delete(this.ctx);
-    sprays.delete(this.ctx);
     this.listeners = {};
   }
 }

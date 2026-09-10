@@ -37,6 +37,7 @@
 
   <!-- Before the page styles, so the page can override the controls. -->
   <link rel="stylesheet" href="gml-ui.css">
+  <link rel="stylesheet" href="examples/demo-header.css">
 
   <style media="screen">
     :root {
@@ -164,33 +165,6 @@
     :root[data-fullscreen] #fullscreen .grow { display: none; }
     :root[data-fullscreen] #fullscreen .shrink { display: block; }
 
-    /* --- masthead --------------------------------------------------------- */
-
-    .masthead { text-align: center; margin-bottom: 26px; }
-
-    h1 {
-      margin: 0;
-      font-size: clamp(1.9rem, 5.5vw, 2.6rem);
-      font-weight: 700;
-      letter-spacing: -0.045em;
-      line-height: 1;
-    }
-
-
-    /* Switching renderer reloads the page: a canvas cannot change its
-       context type after either renderer has claimed it. */
-    .renderers { margin: 10px 0 0; font-size: 12px; color: var(--mute); }
-    .renderers a { color: var(--mute); text-decoration: none; margin: 0 6px; }
-    .renderers a:hover { color: var(--ink); text-decoration: underline; }
-    .renderers a[aria-current] { color: var(--ink); font-weight: 600; }
-
-    .tagline {
-      margin: 12px auto 0;
-      max-width: 72ch;
-      font: 400 13px/1.6 var(--sans);
-      color: var(--mute);
-    }
-
     /* --- layout ----------------------------------------------------------- */
 
     /* Equal fluid rails, so the frame lands on the page's center line at
@@ -226,7 +200,8 @@
     #index ul a { display: block; font-size: 13.5px; line-height: 1.5; text-decoration: none; }
     #index ul a:hover { text-decoration: underline; }
     #index .num { color: var(--mute); font: 400 11px var(--sans); }
-    #index ul a[aria-current] { font-weight: 700; }
+    /* Weight changes widened a selected name and could wrap the phone row. */
+    #index ul a[aria-current] { text-decoration: underline; }
     /* In the gutter, so selecting a tag never re-flows the list. */
     #index ul a[aria-current]:after {
       content: "\2190"; position: absolute; margin-left: 8px; color: var(--mute); font-weight: 400;
@@ -278,9 +253,11 @@
       border-top: 1px solid var(--rule-soft);
       font: 400 11.5px/1.7 var(--sans);
       color: var(--mute);
-      /* Two lines reserved, padding included. A long client name wraps to
-         two, and reserving less jumped the switches below. */
-      min-height: calc(11px + 2 * 1.7 * 11.5px);
+      font-variant-numeric: tabular-nums;
+      overflow-wrap: anywhere;
+      /* Two lines reserved, including padding and border. Longer metadata
+         can still grow naturally without overflowing a narrow deck. */
+      min-height: calc(12px + 2 * 1.7 * 11.5px);
     }
     #readout b { color: var(--ink); font-weight: 500; }
     #readout .sep { color: var(--rule); margin: 0 7px; }
@@ -328,7 +305,6 @@
       #index .group { border-top: 0; padding-top: 0; margin-top: 8px; }
       #index footer { margin-top: 10px; }
       #index ul a[aria-current]:after { display: none; }
-      #index a[aria-current] { text-decoration: underline; }
       .switches { width: 100%; }
       .gml-switches .row { gap: 10px; }
     }
@@ -366,7 +342,7 @@
       <a href="https://fffff.at/gml-week-graffiti-markup-language/">Graffiti Markup Language</a>
       visualization demo. <a href="https://github.com/jamiew/canvasplayer">View code on GitHub</a>
     </p>
-    <p class="renderers"><a href="?renderer=canvas" data-renderer="canvas">2D Canvas</a><a href="?renderer=webgl" data-renderer="webgl">three.js / WebGL</a></p>
+    <p class="renderers"><a href="?renderer=canvas" data-renderer="canvas">2D Canvas</a><a href="?renderer=webgl" data-renderer="webgl">three.js/WebGL</a><a href="./examples/iframe.html">iframe embed</a></p>
     <p class="notice" id="notice" role="status" hidden></p>
   </header>
 
@@ -402,8 +378,6 @@
 
   <footer class="page">
     <a href="https://github.com/jamiew/canvasplayer">github.com/jamiew/canvasplayer</a>
-    <span class="sep">/</span>
-    <a href="https://www.npmjs.com/package/canvasplayer">npm</a>
     <span class="sep">/</span>
     <a href="http://fffff.at/gml-week-graffiti-markup-language/">intro</a>
     <span class="sep">/</span>
@@ -490,7 +464,7 @@
     }
     if (!player) player = new GmlPlayer(canvas);
 
-    document.querySelectorAll('.renderers a').forEach(a => {
+    document.querySelectorAll('.renderers a[data-renderer]').forEach(a => {
       if (a.dataset.renderer === renderer) a.setAttribute('aria-current', 'page');
     });
 
@@ -606,7 +580,7 @@
         shared.delete('random');
         shared.set('id', player.tag.id);
       }
-      document.querySelectorAll('.renderers a').forEach(a => {
+      document.querySelectorAll('.renderers a[data-renderer]').forEach(a => {
         // A copy each: the renderer is the only part that differs per link.
         const params = new URLSearchParams(shared);
         params.set('renderer', a.dataset.renderer);

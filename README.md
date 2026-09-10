@@ -12,7 +12,7 @@ Two renderers share this parser:
 
 | | | |
 |---|---|---|
-| `canvasplayer` | flat 2D canvas, 8 ink modes | [demo](https://jamiew.github.io/canvasplayer/?renderer=canvas) |
+| `canvasplayer` | flat 2D canvas, 6 ink modes | [demo](https://jamiew.github.io/canvasplayer/?renderer=canvas) |
 | `canvasplayer/three` | WebGL, time as depth, particle dust, after [Evan Roth's 3D fork](https://github.com/evanroth/canvasplayer/tree/ga4-3d-player) | [demo](https://jamiew.github.io/canvasplayer/?renderer=webgl) |
 
 The 2D one is the package. The WebGL one is optional and you bring your own
@@ -83,7 +83,8 @@ the module and examples directory layout or adjust their import paths.
 |---|---|
 | [Draw one frame](examples/draw.html) | `parse` and `prepare` from `gml.js`, then `paint` from `gml-player.js`. No animation loop or UI. |
 | [Player and controls](examples/player.html) | `GmlPlayer`, optional `transport` and `switches`, and their stylesheet. The Remove player button demonstrates disposal. |
-| [Iframe host](examples/iframe.html) | One iframe element. The parent page imports no player code or CSS. |
+| [Animation only](examples/playback.html) | `GmlPlayer` filling its frame, with no controls or UI imports. Reduced motion shows the finished tag. |
+| [Iframe gallery](examples/iframe.html) | Three live embeds and their markup, under the same demo header and navigation. The parent imports no player code or UI stylesheet. |
 
 The examples share [tag.json](examples/tag.json), a small copy of the drawing
 and client name from [tag #100](https://000000book.com/data/100.json), captured
@@ -221,22 +222,27 @@ minute-long stalls. The timeline is fixed first. What changed is counted on
 Line width follows the hand. Slow is wide. Fast is thin. Ink runs from where
 the line is widest.
 
-8 ink modes. `marker` is a spline through the samples, wide where the hand was
+6 ink modes. `marker` is a ribbon through the samples, wide where the hand was
 slow. `chisel` is a flat nib at a fixed angle, so width comes from direction.
-`spray` scatters ink on a Gaussian, the way a can does, so density follows
-how long the hand lingered. `outline` draws the silhouette only, which is the
-shape a writer lays down before filling it. `sketch` draws the line twice,
-each pass bowed off the true path. `dyna` tows a brush with mass along the
-path on a spring and draws where the brush went, after Paul Haeberli's
+`outline` draws the silhouette only, which is the shape a writer lays down
+before filling it. `dyna` tows a brush with mass along the path on a spring
+and draws where the brush went, after Paul Haeberli's
 DynaDraw. `hairline` and `skeleton` are diagrams.
 
-4 effects. `ghost` shows the whole tag faint underneath. `bleed` soaks the
-ink outwards. `jitter` nudges every sample by noise. `fade` dims old ink.
+5 effects. `ghost` shows the whole tag faint underneath. `smooth` curves marker
+and outline between samples. `bleed` soaks the ink outwards. `jitter` nudges
+every sample by noise. `fade` dims old ink.
 
-Spray retains the written prefix as native `Path2D` geometry where available.
-New samples extend it; a moving tip is temporary. Resizing, changing drawing
-settings or loading another tag invalidates the cache. Backwards seeks
-rebuild the prefix, so memory does not grow with the number of played frames.
+Path smoothing is off by default. Sparse captures such as tag #100 keep their
+recorded straight sides. Enable it with the **smooth** button or
+`player.setEffect('smooth', true)`. For a single frame, pass
+`effects: { smooth: true }` to `paint()`. `smoothSteps` controls the curve's
+subdivisions when enabled.
+
+The curve uses recorded neighbours, not the moving tip, so playback no longer
+bends ink already drawn. This is separate from the `smoothing` preparation
+option, which smooths speed measurements for line width. Dyna retains its
+own spring-based brush motion.
 
 WebGL updates only the active ribbon edge and simulates dust in fixed
 1/120-second tag-time steps. Catch-up work after a long stall is capped at
@@ -282,10 +288,10 @@ dropped Processing.js and fixed the maths. v6 split it into modules and put
 it on npm. v7 brought the WebGL renderer back onto one branch.
 
 The drawing modes are borrowed too. `dyna` is Paul Haeberli's DynaDraw (1989),
-which filtered a mouse through a mass on a spring and drew the mass. `sketch`
-follows Jo Wood and colleagues' sketchy rendering, the method behind Handy and
-Rough.js. `spray` uses the Gaussian that airbrush simulations have used since
-the 1980s.
+which filtered a mouse through a mass on a spring and drew the mass. The
+removed `sketch` mode followed Jo Wood and colleagues' sketchy rendering,
+the method behind Handy and Rough.js. The removed `spray` mode used the
+Gaussian that airbrush simulations have used since the 1980s.
 
 Public domain, Jamie Wilkinson & Free Art & Technology (F.A.T.) Lab.
 No rights reserved.

@@ -42,15 +42,15 @@
   container-type: inline-size;
 }
 
-.gml-transport button { min-width: 62px; }
+.gml-transport button { min-width: 62px; flex: 0 0 auto; }
 
-/* Both glyphs live in the button. Hiding rather than fading the one that
-   is not the current state keeps the button from changing width. */
-.gml-transport .play { display: grid; place-items: center; min-height: 25px; }
-.gml-transport .play svg { width: 12px; height: 12px; }
-.gml-transport .play .pause,
-.gml-transport .play[data-playing] .play { display: none; }
-.gml-transport .play[data-playing] .pause { display: block; }
+/* The button and its SVG both have the public class "play". Only the
+   button gets the minimum height; applying it to the SVG made Pause shorter. */
+.gml-transport button.play { display: grid; place-items: center; min-height: 25px; }
+.gml-transport button.play svg { grid-area: 1 / 1; width: 12px; height: 12px; }
+.gml-transport button.play .pause,
+.gml-transport button.play[data-playing] .play { visibility: hidden; }
+.gml-transport button.play[data-playing] .pause { visibility: visible; }
 
 .gml-transport .clock {
   font-size: 11px;
@@ -59,6 +59,15 @@
   color: var(--mute, #6b6b6b);
   white-space: nowrap;
 }
+
+/* Reserve the full duration and every offered rate, not just today's text.
+   The invisible copies share the live value's cell and stay out of speech. */
+.gml-transport .clock,
+.gml-transport .rate { display: grid; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.gml-transport .clock > span,
+.gml-transport .rate > span { grid-area: 1 / 1; }
+.gml-transport .clock > [aria-hidden="true"],
+.gml-transport .rate > [aria-hidden="true"] { visibility: hidden; }
 
 .gml-transport .timeline { position: relative; flex: 1 1 auto; min-width: 0; height: 20px; }
 .gml-transport .rail,
@@ -118,12 +127,15 @@
    the one row that matters most look unlike all the others. */
 .gml-switches .segmented { gap: 8px 6px; }
 
-/* What the button under the cursor does. It holds its line whether or not
-   there is one, so nothing below it moves as the cursor crosses the row. */
+/* Every available description shares one cell. The longest wrapped one
+   reserves its real height, including in a narrow host, without clipping. */
 .gml-switches .about {
   margin: 2px 0 0;
+  display: grid;
   min-height: 2.6em;
   font-size: 11.5px;
   line-height: 1.3;
   color: var(--mute, #6b6b6b);
 }
+.gml-switches .about > span { grid-area: 1 / 1; min-width: 0; overflow-wrap: anywhere; }
+.gml-switches .about > [aria-hidden="true"] { visibility: hidden; }

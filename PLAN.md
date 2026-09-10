@@ -5,7 +5,7 @@
 One parser, two renderers, four modules. `gml.js` is shared and pure.
 
 - `gml.js` parses and prepares. Pure, no DOM, no canvas.
-- `gml-player.js` paints and plays on a 2D canvas: 8 ink modes, 4 effects,
+- `gml-player.js` paints and plays on a 2D canvas: 6 ink modes, 5 effects,
   6 data layers. This is what 000000book imports.
 - `gml-ui.js` and `gml-ui.css` build the controls.
 - `gml-three.js` is the optional WebGL dust renderer, after Evan Roth's 3D
@@ -13,6 +13,19 @@ One parser, two renderers, four modules. `gml.js` is shared and pure.
 - `index.html` is the demo. It loads tags over JSONP and switches renderer
   with `?renderer=`.
 - `test.js` runs under `node --test`.
+- Spray and sketch have been removed, including their drawing options.
+  The modes are marker, chisel, outline, dyna, hairline and skeleton.
+  References to the removed modes below record earlier work.
+- Marker and outline follow recorded segments by default. The optional
+  smooth effect uses fixed recorded neighbours rather than the moving tip.
+  On tag #100, the measured written-edge drift fell from 10.38px to zero
+  across two frames of the first stroke in a 560px canvas.
+- Transport glyphs, speed labels, clocks and wrapped descriptions reserve
+  stable space. Chromium measurements found no state-only shifts from
+  320px to 1280px, in fullscreen controls or across a 100-second clock boundary.
+- The iframe gallery shares the demo header and tabs. It shows full controls,
+  animation without UI imports, and a static drawing. All three fit the
+  checked 320px, 390px, 859px and 1280px gallery layouts.
 
 ## Merging the branches back, September 2026
 

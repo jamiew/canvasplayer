@@ -3,19 +3,140 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>canvasplayer: iframe embedding</title>
+<link rel="stylesheet" href="./demo-header.css">
 <style>
-  body { max-width: 640px; margin: 24px auto; padding: 0 16px; font: 16px/1.5 system-ui, sans-serif; }
-  h1 { font-size: 22px; }
-  iframe { display: block; width: 100%; height: 800px; border: 1px solid #ccc; }
+  :root {
+    color-scheme: light;
+    --paper: #fff; --ink: #000; --rule: #d9d9d9; --rule-soft: #ececec; --mute: #6b6b6b;
+    --sans: "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0 auto; padding: 28px 24px 56px; max-width: 1000px;
+    background: var(--paper); color: var(--ink); font-family: var(--sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--ink); text-underline-offset: 3px; text-decoration-thickness: 1px; }
+  a:hover { text-decoration-color: var(--mute); }
+  :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  main { font-size: 14px; line-height: 1.6; }
+  h2 { margin: 0 0 10px; font-size: 20px; letter-spacing: -0.025em; line-height: 1.25; }
+  p { margin: 0 0 14px; }
+  .intro { max-width: 72ch; margin: 0 auto 30px; text-align: center; color: var(--mute); }
+  .example { padding: 28px 0; border-top: 1px solid var(--rule-soft); }
+  .example-grid { display: grid; grid-template-columns: minmax(0, 560px) minmax(0, 1fr); gap: 24px; align-items: start; }
+  .example-copy { min-width: 0; }
+  iframe { display: block; width: 100%; border: 1px solid var(--ink); background: #000; }
+  .player-frame { height: 800px; background: var(--paper); }
+  .playback-frame { aspect-ratio: 1; }
+  .drawing-frame { height: 800px; background: var(--paper); }
+  code { font-size: 12px; overflow-wrap: anywhere; }
+  pre { margin: 16px 0; padding: 14px; border: 1px solid var(--rule-soft); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .guidance { padding-top: 28px; border-top: 1px solid var(--rule-soft); max-width: 72ch; }
+  .guidance ul { padding-left: 20px; }
+  .guidance li + li { margin-top: 8px; }
+  footer.page {
+    margin-top: 40px; padding-top: 18px; border-top: 1px solid var(--rule-soft);
+    font-size: 12.5px; line-height: 1.7; color: var(--mute); text-align: center;
+  }
+  footer.page a { color: var(--mute); }
+  footer.page a:hover { color: var(--ink); }
+  @media (max-width: 859px) {
+    body { padding: 20px 18px 40px; }
+    .example-grid { grid-template-columns: minmax(0, 560px); justify-content: center; gap: 18px; }
+    .example-copy { grid-row: 1; }
+  }
+  @media (max-width: 440px) {
+    .player-frame { height: 1120px; }
+    .drawing-frame { height: 640px; }
+  }
 </style>
-<h1>Embed with an iframe</h1>
-<p>This host page imports no JavaScript or player CSS. The frame owns its drawing and controls.</p>
-<!-- Replace src with the absolute HTTPS URL of your hosted player page. -->
-<iframe src="./player.html" title="Graffiti player for tag 100" loading="lazy"></iframe>
-<p>The same player page works on its own or in a frame on another site.
-  Its JSON and module URLs resolve relative to the player page, not this host.</p>
-<p>You can also embed the full demo with
-  <code>../?renderer=canvas&amp;id=147&amp;fullscreen=1</code> as the source.
-  That version loads its tag from 000000book rather than the bundled JSON.</p>
-<!-- Public domain, Jamie Wilkinson & Free Art & Technology (F.A.T.) Lab. No rights reserved. -->
+<header class="masthead">
+  <h1>canvasplayer</h1>
+  <p class="tagline">
+    <a href="https://fffff.at/gml-week-graffiti-markup-language/">Graffiti Markup Language</a>
+    visualization demo. <a href="https://github.com/jamiew/canvasplayer">View code on GitHub</a>
+  </p>
+  <p class="renderers"><a href="../?renderer=canvas">2D Canvas</a><a href="../?renderer=webgl">three.js/WebGL</a><a href="./iframe.html" aria-current="page">iframe embed</a></p>
+</header>
+<main>
+  <div class="intro">
+    <h2>Embed with an iframe</h2>
+    <p>Three ways to show the same <a href="https://000000book.com/data/100">tag #100</a>.
+      This host page imports no JavaScript or player CSS. Each frame owns its drawing and, when needed, its controls.</p>
+  </div>
+
+  <section class="example" aria-labelledby="player-heading">
+    <div class="example-grid">
+      <iframe class="player-frame" src="./player.html" title="Full graffiti player with controls for tag 100" loading="lazy"></iframe>
+      <div class="example-copy">
+        <h2 id="player-heading">Full player with controls</h2>
+        <p>Play, pause, scrub and change the ink. This example includes the optional controls and a remove button that releases the player.</p>
+        <p><a href="./player.html">Open the player on its own</a></p>
+        <pre><code>&lt;iframe src="./player.html"
+  title="Graffiti player"
+  loading="lazy"
+  style="width:100%;height:1120px;border:0"&gt;
+&lt;/iframe&gt;</code></pre>
+      </div>
+    </div>
+  </section>
+
+  <section class="example" aria-labelledby="playback-heading">
+    <div class="example-grid">
+      <iframe class="playback-frame" src="./playback.html" title="Animation-only graffiti drawing for tag 100" loading="lazy"></iframe>
+      <div class="example-copy">
+        <h2 id="playback-heading">Animation only</h2>
+        <p>The drawing fills its frame and loops without controls. No UI module or stylesheet is loaded.
+          With reduced motion enabled, it shows the finished tag instead.</p>
+        <p><a href="./playback.html">Open the animation on its own</a></p>
+        <pre><code>&lt;iframe src="./playback.html"
+  title="Animated graffiti drawing"
+  loading="lazy"
+  style="width:100%;aspect-ratio:1;border:0"&gt;
+&lt;/iframe&gt;</code></pre>
+      </div>
+    </div>
+  </section>
+
+  <section class="example" aria-labelledby="drawing-heading">
+    <div class="example-grid">
+      <iframe class="drawing-frame" src="./draw.html" title="Static finished graffiti drawing for tag 100" loading="lazy"></iframe>
+      <div class="example-copy">
+        <h2 id="drawing-heading">Finished drawing</h2>
+        <p>One frame, painted once. This example uses <code>parse</code>, <code>prepare</code> and <code>paint</code>:
+          no player, animation loop or controls.</p>
+        <p><a href="./draw.html">Open the drawing on its own</a></p>
+        <pre><code>&lt;iframe src="./draw.html"
+  title="Finished graffiti drawing"
+  loading="lazy"
+  style="width:100%;height:800px;border:0"&gt;
+&lt;/iframe&gt;</code></pre>
+      </div>
+    </div>
+  </section>
+
+  <section class="guidance" aria-labelledby="hosting-heading">
+    <h2 id="hosting-heading">Put a frame on another site</h2>
+    <p>Each example uses bundled JSON. Its JSON and module URLs resolve relative to the framed page, not the host page.</p>
+    <ul>
+      <li>Replace <code>src</code> with the absolute HTTPS URL of your hosted example. Serve the modules and
+        <code>tag.json</code> alongside it over HTTP or HTTPS, not <code>file://</code>.</li>
+      <li>Set the frame size on the host page. The drawing fits its stage, but the player does not resize the outer iframe.
+        Leave enough height for controls or introductory text.</li>
+      <li>The host's <code>frame-src</code> policy must allow the player URL. The player's
+        <code>frame-ancestors</code> and <code>X-Frame-Options</code> headers must allow the host.</li>
+      <li>If you add a sandbox, module loading and playback need <code>allow-scripts allow-same-origin</code>.
+        Use those permissions only for content you trust.</li>
+      <li>The host cannot control a cross-origin player through these examples. There is no <code>postMessage</code> API.</li>
+    </ul>
+    <p>You can also embed the full demo with
+      <a href="../?renderer=canvas&amp;id=147&amp;fullscreen=1"><code>../?renderer=canvas&amp;id=147&amp;fullscreen=1</code></a>
+      as the source. That version loads its tag from 000000book rather than the bundled JSON.</p>
+  </section>
+</main>
+<footer class="page">
+  <p><a href="https://github.com/jamiew/canvasplayer">github.com/jamiew/canvasplayer</a></p>
+  Public domain, Jamie Wilkinson &amp; Free Art &amp; Technology (F.A.T.) Lab. No rights reserved.
+</footer>
 </html>

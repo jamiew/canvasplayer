@@ -471,23 +471,58 @@ describe('fade slicing', () => {
     return drawn;
   }
 
-  test('spray does not rescatter its grit when a slice boundary moves', () => {
-    const before = geometry('spray', 3.34);
-    const after = new Set(geometry('spray', 3.36));
-    const kept = before.filter(g => after.has(g)).length;
-    // Was 19% when the noise was seeded off the index within the slice.
-    assert.equal(kept, before.length, 'every dot already sprayed stays put');
+  test('dyna mostly holds its shape when a slice boundary moves', () => {
+    const before = geometry('dyna', 3.34);
+    const after = new Set(geometry('dyna', 3.36));
+    const kept = before.filter(g => after.has(g)).length / before.length;
+    // Not 1: it reads its neighbors, so the samples at a slice edge still
+    // move. Was 0.11 before the dyna warm-up.
+    assert.ok(kept > 0.5, 'dyna held ' + kept.toFixed(2));
+  });
+});
+
+describe('ribbon geometry', () => {
+  // Like tag 100: a closed shape recorded as five widely separated corners.
+  const tag = prepare({ strokes: [{ points: [
+    [0, 0, 0], [1, 0, 1], [1, 1, 2], [0, 1, 3], [0, 0, 4]
+  ] }] }, { minWidth: 0.02, maxWidth: 0.02 });
+  const view = fit(tag.bounds, 400, 400);
+
+  function draw(time, smooth, mode = 'marker') {
+    const vertices = [];
+    const caps = [];
+    const ctx = stubContext();
+    ctx.moveTo = ctx.lineTo = (x, y) => vertices.push([x, y]);
+    ctx.arc = (x, y, r) => caps.push([x, y, r]);
+    paint(ctx, tag, { time, w: 400, h: 400, mode, effects: { smooth }, layers: { ink: true } });
+    return { vertices, caps };
+  }
+
+  test('only curves sparse marker and outline corners when smoothing is enabled', () => {
+    for (const mode of ['marker', 'outline']) {
+      const straight = draw(tag.duration, false, mode).vertices;
+      const curved = draw(tag.duration, true, mode).vertices;
+      const margin = view.unit * 0.02 / 2;
+      assert.ok(straight.every(([x, y]) => x >= view.x(0) - margin && y >= view.y(0) - margin),
+        mode + ' keeps the recorded straight sides');
+      assert.ok(curved.some(([, y]) => y < view.y(0) - margin - 1),
+        mode + ' can explicitly bow the path between corners');
+    }
+    const tip = draw(0.5, false).caps.at(-1);
+    assert.ok(near(tip[0], view.x(0.5)) && near(tip[1], view.y(0)),
+      'without smoothing the moving tip interpolates the recorded segment');
   });
 
-  test('sketch and dyna mostly hold their shape across the same shift', () => {
-    for (const mode of ['sketch', 'dyna']) {
-      const before = geometry(mode, 3.34);
-      const after = new Set(geometry(mode, 3.36));
-      const kept = before.filter(g => after.has(g)).length / before.length;
-      // Not 1: both read their neighbors, so the samples at a slice edge
-      // still move. Was 0.12 and 0.11 before the absolute seed and the
-      // dyna warm-up.
-      assert.ok(kept > 0.5, mode + ' held ' + kept.toFixed(2));
+  test('keeps written ribbon edges fixed as the head moves and crosses a sample', () => {
+    for (const smooth of [false, true]) {
+      const before = draw(0.75, smooth);
+      const head = before.caps.at(-1);
+      const written = before.vertices.filter(([x, y]) => Math.hypot(x - head[0], y - head[1]) > 20);
+      for (const time of [0.9, 1, 1.25]) {
+        const after = draw(time, smooth).vertices;
+        assert.ok(written.every(([x, y]) => after.some(([ax, ay]) => near(x, ax) && near(y, ay))),
+          'already written edges stay put with smooth=' + smooth + ' at ' + time);
+      }
     }
   });
 });
@@ -510,42 +545,6 @@ describe('paint', () => {
       [ctx.globalAlpha, ctx.fillStyle, ctx.strokeStyle, ctx.lineWidth],
       [0.35, '#123456', '#abcdef', 7]
     );
-  });
-
-  test('cached spray matches uncached ink through seeks and style changes', () => {
-    class RecordedPath {
-      constructor(other) { this.commands = other ? other.commands.slice() : []; }
-      moveTo(...args) { this.commands.push(['moveTo', ...args]); }
-      arc(...args) { this.commands.push(['arc', ...args]); }
-    }
-    const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'Path2D');
-    const frames = [
-      { time: 0.13 }, { time: 0.57 }, { time: tag.duration },
-      { time: 0.24 }, { time: 0.61, effects: { jitter: true, bleed: true } },
-      { time: 0.7, opts: { sprayDots: 8 } }, { time: 0.75, w: 300 },
-      { time: tag.duration, effects: { fade: true } }
-    ];
-    const draw = cached => {
-      if (cached) globalThis.Path2D = RecordedPath;
-      else delete globalThis.Path2D;
-      const ctx = stubContext();
-      let current;
-      const fills = [];
-      ctx.beginPath = () => { current = new RecordedPath(); };
-      ctx.moveTo = (...args) => current.moveTo(...args);
-      ctx.arc = (...args) => current.arc(...args);
-      ctx.fill = path => fills.push([ctx.globalAlpha, (path || current).commands.slice()]);
-      for (const frame of frames) {
-        paint(ctx, tag, { w: 240, h: 200, mode: 'spray', layers: { ink: true }, ...frame });
-      }
-      return fills;
-    };
-    try {
-      assert.deepEqual(draw(true), draw(false), 'native path caching must not change the ink');
-    } finally {
-      if (descriptor) Object.defineProperty(globalThis, 'Path2D', descriptor);
-      else delete globalThis.Path2D;
-    }
   });
 
   // Node has no canvas, so the tests above take the fallback. This stands a
