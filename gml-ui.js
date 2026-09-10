@@ -12,7 +12,6 @@
  * No rights reserved.
  */
 
-import { MODES, EFFECTS, VIEWS, LAYERS, ABOUT } from './gml-player.js';
 
 const RATES = [0.25, 0.5, 1, 2, 4];
 
@@ -114,6 +113,14 @@ export function switches(player, host) {
   host.classList.add('gml-switches');
 
   /*
+   * What this renderer can do, asked of the renderer. Importing the lists
+   * from the 2D player would make every WebGL page download the 2D player
+   * to read five arrays.
+   */
+  const can = player.capabilities || {};
+  const ABOUT = can.about || {};
+
+  /*
    * One line about whichever button the cursor or the keyboard is on, and
    * the ink mode's when it is on none of them. A name on a button is jargon
    * until something says what it does, and there is no room to say it on the
@@ -154,10 +161,10 @@ export function switches(player, host) {
     host.appendChild(wrap);
   }
 
-  row('Ink mode', MODES, 'set segmented', name => player.mode === name, name => player.setMode(name));
-  row('Effects', EFFECTS, 'set', name => player.effects[name], name => player.setEffect(name, !player.effects[name]));
-  row('View', VIEWS, 'set', name => player.views[name], name => player.setView(name, !player.views[name]));
-  row('Data', LAYERS, 'set', name => player.layers[name], name => player.setLayer(name, !player.layers[name]));
+  row('Ink mode', can.modes, 'set segmented', name => player.mode === name, name => player.setMode(name));
+  row('Effects', can.effects, 'set', name => player.effects[name], name => player.setEffect(name, !player.effects[name]));
+  row('View', can.views, 'set', name => player.views[name], name => player.setView(name, !player.views[name]));
+  row('Data', can.layers, 'set', name => player.layers[name], name => player.setLayer(name, !player.layers[name]));
 
   host.appendChild(about);
   rest();

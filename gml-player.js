@@ -26,11 +26,6 @@ export const MODES = ['marker', 'chisel', 'spray', 'outline', 'sketch', 'dyna', 
 // Combinable treatments applied on top of whichever mode is active.
 export const EFFECTS = ['ghost', 'bleed', 'jitter', 'fade'];
 
-// How the depth is looked at. Nothing to look at without depth, so this is
-// empty here and the controls leave the row out. The native-3d branch fills
-// it in, and gml-ui.js is the same file on both.
-export const VIEWS = [];
-
 /*
  * A line on each, for the controls to show. Kept here rather than in the
  * controls because this is where the thing itself is defined, and a name
@@ -368,7 +363,7 @@ function chisel(s, path, spread) {
  * landing on wet paint does not double its darkness, and density reads as
  * coverage, which is what an aerosol actually does.
  */
-function spray(s, p, spread) {
+function spray(s, p, spread, at) {
   const { ctx, opts } = s;
   const base = ctx.globalAlpha;
 
@@ -389,8 +384,12 @@ function spray(s, p, spread) {
     const half = p[i][2] / 2;
     for (let k = 0; k < opts.sprayDots; k++) {
       // Box-Muller, so the scatter is Gaussian rather than a flat disc.
-      const u = Math.max(noise(i * 131 + k, 21), 1e-6);
-      const a = noise(i * 131 + k, 37) * TAU;
+      // (at + i), not i: fade slices a stroke, and the slice boundaries
+      // move as it grows. Seeded off the local index, grit already on
+      // screen would rescatter from frame to frame.
+      const n = (at + i) * 131 + k;
+      const u = Math.max(noise(n, 21), 1e-6);
+      const a = noise(n, 37) * TAU;
       const r = Math.sqrt(-2 * Math.log(u)) * opts.spraySpread * half * spread;
       const x = p[i][0] + Math.cos(a) * r;
       const y = p[i][1] + Math.sin(a) * r;
@@ -409,7 +408,7 @@ function spray(s, p, spread) {
  * pass carries its own seed, so the two strokes part company and meet again
  * the way a pen's do.
  */
-function sketch(s, p, spread) {
+function sketch(s, p, spread, at) {
   const { ctx, opts, view } = s;
   const amp = opts.sketchBow * view.unit * spread;
 
@@ -419,13 +418,15 @@ function sketch(s, p, spread) {
     ctx.lineWidth = Math.max(opts.hairline * spread, 0.5);
     ctx.beginPath();
     for (let i = 0; i < p.length; i++) {
-      const t = i / opts.sketchWave;
+      // Absolute, for the same reason spray's is: a slice must not restart
+      // the wave, or drawn ink wanders when fade is on.
+      const t = (at + i) / opts.sketchWave;
       const lo = Math.floor(t);
       const f = t - lo;
       const seed = 51 + pass * 13;
       // Smoothstep between noise samples, so the bow is a wave, not a jump.
       const bow = lerp(noise(lo, seed), noise(lo + 1, seed), f * f * (3 - 2 * f)) - 0.5;
-      const grain = noise(i, seed + 5) - 0.5;
+      const grain = noise(at + i, seed + 5) - 0.5;
       const [nx, ny] = normal(p, i);
       const len = Math.hypot(nx, ny) || 1;
       const off = (bow * 2 + grain * 0.3) * amp;
@@ -481,24 +482,48 @@ function skeleton(ctx, path, spread) {
   }
 }
 
+/*
+ * How far back the dyna filter is run before the slice it has to draw.
+ * The spring's state is everything it has already seen, so a slice cannot
+ * start it afresh; the drag settles it well inside this many samples, so
+ * running from here and throwing the warm-up away is indistinguishable from
+ * running from the start of the stroke, at a bounded cost.
+ */
+const DYNA_WARMUP = 32;
+
 function drawStroke(s, stroke, si, from, to, partial, spread) {
+  if (s.mode === 'dyna') return drawDyna(s, stroke, si, from, to, partial, spread);
+
   const p = path(s, stroke, si, from, to, partial, spread);
   if (!p.length) return;
 
   switch (s.mode) {
     case 'chisel': return chisel(s, p, spread);
-    case 'spray': return spray(s, p, spread);
+    case 'spray': return spray(s, p, spread, from);
     case 'outline':
       s.ctx.lineWidth = Math.max(s.opts.hairline * spread, 0.5);
       s.ctx.lineJoin = 'round';
       return ribbon(s.ctx, smooth(p, s.opts.smoothSteps), true);
-    case 'sketch': return sketch(s, p, spread);
-    case 'dyna': return ribbon(s.ctx, dyna(s, smooth(p, 2)));
+    case 'sketch': return sketch(s, p, spread, from);
     case 'hairline': return polyline(s.ctx, p, s.opts.hairline * spread);
     case 'skeleton': return skeleton(s.ctx, p, spread);
     // marker: a spline through the samples, so a slow hand does not staircase.
     default: return ribbon(s.ctx, smooth(p, s.opts.smoothSteps));
   }
+}
+
+// Its own function because it is the one brush that needs samples the slice
+// does not contain. smooth() turns n samples into 1 + (n - 1) * steps, so
+// the warm-up is that many entries wide once smoothed.
+function drawDyna(s, stroke, si, from, to, partial, spread) {
+  const steps = 2;
+  const warm = Math.max(0, from - DYNA_WARMUP);
+  const p = path(s, stroke, si, warm, to, partial, spread);
+  if (!p.length) return;
+
+  const filtered = dyna(s, smooth(p, steps));
+  const skip = Math.min((from - warm) * steps, Math.max(filtered.length - 2, 0));
+  return ribbon(s.ctx, skip > 0 ? filtered.slice(skip) : filtered);
 }
 
 /*
@@ -925,6 +950,9 @@ export class GmlPlayer {
     this.layers = { ink: true, drips: true, vectors: false, points: false, bounds: false, graph: false };
     this.effects = { ghost: true, bleed: false, jitter: false, fade: false };
     this.mode = 'marker';
+    // What the controls may offer. Asked of the player rather than imported,
+    // so gml-ui.js can drive a renderer that has none of these.
+    this.capabilities = { modes: MODES, effects: EFFECTS, layers: LAYERS, about: ABOUT };
     this.playing = false;
     this.time = 0;
     this.listeners = {};

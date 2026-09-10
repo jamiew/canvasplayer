@@ -4,8 +4,10 @@
 // browser or the network.
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { parse, prepare, progress, isLandscape } from './gml.js';
 import { fit, paint, GmlPlayer, MODES, EFFECTS, LAYERS } from './gml-player.js';
+import { ThreePlayer } from './gml-three.js';
 
 const near = (a, b, eps = 1e-6) => Math.abs(a - b) < eps;
 
@@ -248,6 +250,160 @@ describe('isLandscape', () => {
     assert.equal(isLandscape({}, upright), false);
     assert.equal(isLandscape(null, upright), false);
     assert.equal(isLandscape({ up: { x: '0', y: '1' } }, sideways), false, 'the vector wins over the geometry');
+  });
+});
+
+/*
+ * A stand-in for three.js, enough for gml-three.js to build its scene and
+ * draw a frame. It is here at all because ThreePlayer takes THREE as an
+ * argument rather than importing it, which is the only reason a WebGL
+ * renderer can be tested with no browser and no GPU.
+ */
+function stubThree() {
+  const vec = (x = 0, y = 0, z = 0) => ({ x, y, z, set(a, b, c) { this.x = a; this.y = b; this.z = c; return this; } });
+  class BufferAttribute {
+    constructor(array, itemSize) { this.array = array; this.itemSize = itemSize; this.needsUpdate = false; }
+  }
+  class BufferGeometry {
+    constructor() { this.attributes = {}; this.drawRange = { start: 0, count: Infinity }; }
+    setAttribute(name, attr) { this.attributes[name] = attr; return this; }
+    setIndex(index) { this.index = index; return this; }
+    setDrawRange(start, count) { this.drawRange = { start, count }; return this; }
+    dispose() { this.disposed = true; }
+  }
+  class Material {
+    constructor(o = {}) { Object.assign(this, o); }
+    dispose() { this.disposed = true; }
+  }
+  class Object3D {
+    constructor(geometry, material) { this.geometry = geometry; this.material = material; }
+  }
+  class PerspectiveCamera {
+    constructor(fov, aspect, near, far) {
+      Object.assign(this, { fov, aspect, near, far });
+      this.position = vec(); this.up = vec(0, 1, 0);
+    }
+    lookAt(x, y, z) { this.looked = [x, y, z]; }
+    updateProjectionMatrix() {}
+  }
+  class WebGLRenderer {
+    constructor(o) { this.canvas = o.canvas; this.frames = 0; }
+    setClearColor() {} setPixelRatio(r) { this.pixelRatio = r; } setSize(w, h) { this.size = [w, h]; }
+    render() { this.frames++; }
+  }
+  return {
+    BufferAttribute, BufferGeometry, PerspectiveCamera, WebGLRenderer,
+    Scene: class { constructor() { this.children = []; } add(o) { this.children.push(o); } remove(o) { this.children = this.children.filter(c => c !== o); } },
+    Mesh: Object3D, Points: Object3D, LineSegments: Object3D,
+    MeshBasicMaterial: Material, PointsMaterial: Material, LineBasicMaterial: Material,
+    DoubleSide: 'double', AdditiveBlending: 'additive'
+  };
+}
+
+function stubGlCanvas() {
+  return {
+    style: {}, clientWidth: 400, clientHeight: 300, parentNode: null,
+    addEventListener() {}, removeEventListener() {},
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 400, height: 300 })
+  };
+}
+
+describe('ThreePlayer', () => {
+  const tag = {
+    strokes: [
+      { points: Array.from({ length: 40 }, (_, i) => [0.2 + i / 80, 0.5 + Math.sin(i / 5) * 0.15, i * 0.05]) },
+      { points: [[0.3, 0.2, 2.2], [0.7, 0.4, 2.6]] }
+    ]
+  };
+  const build = () => new ThreePlayer(stubThree(), stubGlCanvas(), tag);
+
+  test('takes THREE as an argument and imports none of it', () => {
+    const src = readFileSync(new URL('./gml-three.js', import.meta.url), 'utf8');
+    assert.ok(!/^\s*import\s.*three/m.test(src), 'no import of three');
+  });
+
+  test('builds a scene and draws a frame', () => {
+    const p = build();
+    assert.ok(p.meshes.length > 0, 'a mesh per stroke');
+    assert.ok(p.duration > 0);
+    assert.equal(p.renderer.frames > 0, true);
+  });
+
+  test('every vertex it builds is a finite number', () => {
+    const p = build();
+    p.meshes.forEach(m => {
+      const a = m.mesh.geometry.attributes.position.array;
+      assert.ok(a.every(Number.isFinite), 'no NaN in the ribbon');
+    });
+  });
+
+  test('draws no dust until the field has been stepped', () => {
+    // A fresh BufferGeometry draws its whole buffer, so an unstepped field
+    // used to put every particle on screen at the origin.
+    const p = build();
+    assert.equal(p.dotGeo.drawRange.count, 0);
+    assert.equal(p.trailGeo.drawRange.count, 0);
+  });
+
+  test('seeking back to the start clears the dust it had drawn', () => {
+    const p = build();
+    // A few frames, not one: the first injection only records where the head
+    // is, so nothing moves until it has somewhere to move from.
+    for (let i = 0; i < 40; i++) p.step(1 / 60);
+    assert.ok(p.dotGeo.drawRange.count > 0, 'the field woke while playing');
+    p.seek(0);
+    assert.equal(p.dotGeo.drawRange.count, 0, 'and is empty again after a seek');
+  });
+
+  test('offers the controls no modes it cannot draw', () => {
+    const p = build();
+    assert.deepEqual(p.capabilities.modes, []);
+    assert.deepEqual(p.capabilities.layers, []);
+  });
+});
+
+describe('fade slicing', () => {
+  // fade cuts a stroke into slices to shade them, and the slice boundaries
+  // move as the stroke grows. The brushes that read a sample index must read
+  // the absolute one, or ink already on screen redraws itself differently.
+  // 168 samples slice by 6, 169 by 7, so these two frames straddle a shift.
+  const tag = prepare({ strokes: [{ points: Array.from({ length: 210 },
+    (_, i) => [0.2 + 0.6 * (i / 209), 0.5 + 0.18 * Math.sin(i / 9), i * 0.02]) }] });
+
+  function geometry(mode, time) {
+    const drawn = [];
+    const ctx = new Proxy({ globalAlpha: 1, getTransform: () => ({ a: 1, d: 1 }) }, {
+      get: (t, k) => (k in t ? t[k] : (...a) => {
+        // Rounded to a thousandth of a pixel: the claim is that drawn ink
+        // does not visibly move, not that a filter reproduces bit for bit.
+        if (k === 'moveTo' || k === 'lineTo' || k === 'arc') {
+          drawn.push(k + a.map(v => typeof v === 'number' ? v.toFixed(3) : v).join(','));
+        }
+      }),
+      set: (t, k, v) => { t[k] = v; return true; }
+    });
+    paint(ctx, tag, { time, w: 400, h: 300, mode, effects: { ghost: false, fade: true }, layers: { ink: true } });
+    return drawn;
+  }
+
+  test('spray does not rescatter its grit when a slice boundary moves', () => {
+    const before = geometry('spray', 3.34);
+    const after = new Set(geometry('spray', 3.36));
+    const kept = before.filter(g => after.has(g)).length;
+    // Was 19% when the noise was seeded off the index within the slice.
+    assert.equal(kept, before.length, 'every dot already sprayed stays put');
+  });
+
+  test('sketch and dyna mostly hold their shape across the same shift', () => {
+    for (const mode of ['sketch', 'dyna']) {
+      const before = geometry(mode, 3.34);
+      const after = new Set(geometry(mode, 3.36));
+      const kept = before.filter(g => after.has(g)).length / before.length;
+      // Not 1: both read their neighbors, so the samples at a slice edge
+      // still move. Was 0.12 and 0.11 before the absolute seed and the
+      // dyna warm-up.
+      assert.ok(kept > 0.5, mode + ' held ' + kept.toFixed(2));
+    }
   });
 });
 
