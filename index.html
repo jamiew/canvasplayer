@@ -597,15 +597,17 @@
      * keep showing what you were already looking at.
      */
     function syncRenderers() {
+      const shared = new URLSearchParams(document.location.search);
+      // ?random and ?latest would resolve again on the other renderer and
+      // land on a different tag, so once one has loaded the links name it.
+      if (player.tag && player.tag.id) {
+        shared.delete('latest');
+        shared.delete('random');
+        shared.set('id', player.tag.id);
+      }
       document.querySelectorAll('.renderers a').forEach(a => {
-        const params = new URLSearchParams(document.location.search);
-        // ?random and ?latest would resolve again on the other renderer and
-        // land on a different tag, so once one has loaded the links name it.
-        if (player.tag && player.tag.id) {
-          params.delete('latest');
-          params.delete('random');
-          params.set('id', player.tag.id);
-        }
+        // A copy each: the renderer is the only part that differs per link.
+        const params = new URLSearchParams(shared);
         params.set('renderer', a.dataset.renderer);
         a.href = '?' + params.toString();
       });
@@ -622,7 +624,7 @@
       const current = document.getElementById('link-' + tagId);
       if (current) current.setAttribute('aria-current', 'page');
       status.hidden = false;
-      status.className = 'status';
+      status.classList.remove('error');
       status.textContent = 'Loading #' + tagId;
 
       // Click two tags quickly and the answers can come back in either
@@ -634,7 +636,7 @@
         else status.textContent = '#' + tagId + ' has no stroke data';
       }, err => {
         if (mine !== wanted) return;
-        status.className = 'status error';
+        status.classList.add('error');
         status.textContent = err.message;
       });
     }

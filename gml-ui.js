@@ -3,15 +3,14 @@
  *
  * transport() is play and pause, a timeline to scrub with a tick where each
  * stroke starts, a clock and a speed button. switches() is a row of buttons
- * each for the ink mode, the effects, the view and the data layers, with a
- * line underneath saying what the one under the cursor does. Plain DOM, styled
+ * each for the ink mode, the effects and the data layers, with a line
+ * underneath saying what the one under the cursor does. Plain DOM, styled
  * by gml-ui.css. Colors come from --ink, --paper, --mute and --rule on any
  * ancestor, or fall back to black on white.
  *
  * Public domain, Jamie Wilkinson & Free Art & Technology (F.A.T.) Lab.
  * No rights reserved.
  */
-
 
 const RATES = [0.25, 0.5, 1, 2, 4];
 
@@ -105,8 +104,8 @@ export function transport(player, host) {
 }
 
 /*
- * One row each for mode, effects, view and layers. Mode is one-of-many, so
- * it joins into one control. The rest are independent, so they stay separate
+ * One row each for mode, effects and layers. Mode is one-of-many, so it
+ * joins into one control. The rest are independent, so they stay separate
  * chips.
  */
 export function switches(player, host) {
@@ -114,8 +113,8 @@ export function switches(player, host) {
 
   /*
    * What this renderer can do, asked of the renderer. Importing the lists
-   * from the 2D player would make every WebGL page download the 2D player
-   * to read five arrays.
+   * from the 2D player would make every WebGL page download the 2D painter
+   * to read four constants.
    */
   const can = player.capabilities || {};
   const ABOUT = can.about || {};
@@ -131,9 +130,8 @@ export function switches(player, host) {
   const rest = () => say(player.mode);
 
   function row(label, names, setClass, isOn, toggle) {
-    // A renderer that has none of these leaves the row out rather than
-    // showing an empty one, which is how this file stays the same on every
-    // branch.
+    // A renderer that offers none of these leaves the row out rather than
+    // showing an empty one. That is how one controls file drives both.
     if (!names || !names.length) return;
     const wrap = el('div', 'row');
     const set = el('div', setClass);
@@ -163,7 +161,6 @@ export function switches(player, host) {
 
   row('Ink mode', can.modes, 'set segmented', name => player.mode === name, name => player.setMode(name));
   row('Effects', can.effects, 'set', name => player.effects[name], name => player.setEffect(name, !player.effects[name]));
-  row('View', can.views, 'set', name => player.views[name], name => player.setView(name, !player.views[name]));
   row('Data', can.layers, 'set', name => player.layers[name], name => player.setLayer(name, !player.layers[name]));
 
   host.appendChild(about);
