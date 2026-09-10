@@ -1,23 +1,36 @@
 {
   "name": "canvasplayer",
-  "version": "6.1.0",
-  "description": "Graffiti Markup Language (GML) playback on <canvas>. Parses, repairs and draws tags from #000000book. No dependencies.",
+  "version": "7.0.0",
+  "description": "Graffiti Markup Language (GML) playback on <canvas>. Parses, repairs and draws tags from #000000book. No dependencies, and an optional WebGL renderer.",
   "type": "module",
+  "main": "./gml-player.js",
+  "sideEffects": false,
   "exports": {
     ".": "./gml-player.js",
     "./gml": "./gml.js",
     "./ui": "./gml-ui.js",
-    "./ui.css": "./gml-ui.css"
+    "./ui.css": "./gml-ui.css",
+    "./three": "./gml-three.js",
+    "./package.json": "./package.json"
   },
   "files": [
     "gml.js",
     "gml-player.js",
+    "gml-three.js",
     "gml-ui.js",
     "gml-ui.css"
   ],
   "scripts": {
     "test": "node --test test.js",
     "prepublishOnly": "node --test test.js"
+  },
+  "peerDependencies": {
+    "three": ">=0.160.0"
+  },
+  "peerDependenciesMeta": {
+    "three": {
+      "optional": true
+    }
   },
   "repository": "github:jamiew/canvasplayer",
   "homepage": "https://jamiew.github.io/canvasplayer",
@@ -27,7 +40,9 @@
     "graffiti-markup-language",
     "000000book",
     "canvas",
-    "playback"
+    "playback",
+    "webgl",
+    "threejs"
   ],
   "author": "Jamie Wilkinson (https://jamiedubs.com)",
   "license": "Unlicense"

@@ -8,20 +8,24 @@ the speed the hand moved. No dependencies. No build step.
 
 Demo: https://jamiew.github.io/canvasplayer
 
-Three renderers share this parser, one per branch:
+Two renderers share this parser:
 
 | | | |
 |---|---|---|
-| `main` | flat 2D canvas | [demo](https://jamiew.github.io/canvasplayer) |
-| `native-3d` | 2D canvas, time as depth, particle dust | [demo](https://jamiew.github.io/canvasplayer/native-3d/) |
-| `threejs-renderer` | WebGL, after Evan Roth's 3D fork | [demo](https://jamiew.github.io/canvasplayer/threejs/) |
+| `canvasplayer` | flat 2D canvas, 8 ink modes | [demo](https://jamiew.github.io/canvasplayer/?renderer=canvas) |
+| `canvasplayer/three` | WebGL, time as depth, particle dust, after [Evan Roth's 3D fork](https://github.com/evanroth/canvasplayer/tree/ga4-3d-player) | [demo](https://jamiew.github.io/canvasplayer/?renderer=webgl) |
+
+The 2D one is the package. The WebGL one is optional and you bring your own
+three.js, so it costs nothing until you import it.
 
 ## Install
 
     npm install canvasplayer
 
-Or copy the 4 files next to your page and import them by path. On Rails with
+Or copy the files next to your page and import them by path. On Rails with
 Propshaft, put them in `public/`. Propshaft does not rewrite imports.
+
+three.js is an optional peer. Install it only if you want the WebGL renderer.
 
 ## Use
 
@@ -70,7 +74,23 @@ the result with anything.
 - `GmlPlayer(canvas, tag, options)` runs a canvas: sizing, clock and events
 - `MODES`, `EFFECTS`, `LAYERS` and `DEFAULTS`
 
-`canvasplayer/ui` builds controls: `transport` and `switches`.
+`canvasplayer/ui` builds controls: `transport` and `switches`. It imports
+nothing from either renderer, and asks the player what it can do.
+
+`canvasplayer/three` draws the same tags in WebGL: time on the z axis, and a
+dust field the writing hand shoves around. It imports nothing, so hand it
+your own `THREE`:
+
+    import * as THREE from 'three';
+    import { ThreePlayer } from 'canvasplayer/three';
+
+    const player = new ThreePlayer(THREE, canvas, tag);
+    player.play();
+
+Tested against r160, which is what the demo pins. It uses 13 symbols, all
+core. Both players answer to the same transport, so the controls do not care
+which one they were handed: `play`, `pause`, `toggle`, `seek`, `setSpeed`,
+`duration`, `destroy`, and `on('load' | 'frame' | 'state')`.
 
 A tag looks like this. Make one from anything.
 
@@ -99,14 +119,16 @@ DynaDraw. `hairline` and `skeleton` are diagrams.
 4 effects. `ghost` shows the whole tag faint underneath. `bleed` soaks the
 ink outwards. `jitter` nudges every sample by noise. `fade` dims old ink.
 
-Time as depth, the particle dust, extrude and anaglyph live on the
-`native-3d` branch.
+Time as depth and the particle dust are the WebGL renderer's, not the 2D
+one's. A 2D version of them lived on the `native-3d` branch, kept at the
+[`v6.1-native-3d`](https://github.com/jamiew/canvasplayer/releases/tag/v6.1-native-3d)
+tag: all 8 ink modes in depth, no dependency, and slower.
 
 The frame takes the window with the fullscreen button, next to the light and
 dark toggle. It is a layout mode rather than the browser's fullscreen API, so
 it works in an iframe and can be linked to with `?fullscreen=1`. Escape
-exits. The renderer links carry the whole query string across, so switching
-renderer keeps showing what you were looking at.
+exits. The renderer links carry the tag across, so switching renderer keeps
+showing what you were looking at.
 
 6 data layers, for checking a tag. `ink` and `drips` are the drawing.
 `vectors` are arrows for direction and speed. `points` marks every sample.
@@ -123,7 +145,8 @@ Any static server works. Modules do not load from `file://`.
 
     python3 -m http.server 8420
 
-Open http://localhost:8420/?id=161. `?latest` and `?random` work too.
+Open http://localhost:8420/?id=161. `?latest` and `?random` work too, and
+`?renderer=webgl` switches renderer.
 
     npm test
 
@@ -133,7 +156,7 @@ Tests need no browser and no network.
 
 Started in 2009 for GML Week at F.A.T. Lab as a Processing.js sketch. v4
 dropped Processing.js and fixed the maths. v6 split it into modules and put
-it on npm.
+it on npm. v7 brought the WebGL renderer back onto one branch.
 
 The drawing modes are borrowed too. `dyna` is Paul Haeberli's DynaDraw (1989),
 which filtered a mouse through a mass on a spring and drew the mass. `sketch`

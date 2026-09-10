@@ -26,7 +26,7 @@ dependency. The WebGL renderer looks and performs better, and the reasons to
 keep both were about putting depth on a 000000book browse page, which is not
 what 3D is for here. One look we like beats eight we do not.
 
-The steps, each one commit:
+Done. The steps, each one commit:
 
 1. Bring `gml-3d.js` over as `gml-three.js`. `THREE` becomes the first
    constructor argument rather than a top-level import, so the module pulls
@@ -57,9 +57,8 @@ The steps, each one commit:
 
 ## Decisions to confirm
 
-- Version is 6.1.0. Modes were only added to, so the API grew without
-  breaking. The merge adds `gml-three.js` and removes nothing published, so
-  it is 6.2.0.
+- Version is 7.0.0. `VIEWS` is gone, which is a named export removed, so by
+  this project's own rule that is a major. Nothing else published changed.
 - The license field says Unlicense. The code says public domain, no rights
   reserved. Change it if you want CC0 instead.
 - The name `canvasplayer` is free on npm.
