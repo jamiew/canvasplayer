@@ -25,47 +25,21 @@
   <meta property="og:description" content="canvasplayer (2009): Graffiti Markup Language (GML) playback in the browser on HTML5 canvas.">
   <meta property="og:type" content="website">
   <meta name="twitter:card" content="summary">
-  <script>
-    // Runs before the stylesheet, or the page flashes the wrong theme.
-    (function () {
-      var saved = null;
-      try { saved = localStorage.getItem('theme'); } catch (e) {}
-      document.documentElement.dataset.theme = saved ||
-        (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-    }());
-  </script>
+  <script src="examples/demo-theme.js"></script>
 
   <!-- Before the page styles, so the page can override the controls. -->
   <link rel="stylesheet" href="gml-ui.css">
+  <link rel="stylesheet" href="examples/demo-theme.css">
   <link rel="stylesheet" href="examples/demo-header.css">
 
   <style media="screen">
     :root {
-      color-scheme: light;
-      --paper: #fff;
-      --ink: #000;
-      --rule: #d9d9d9;
-      --rule-soft: #ececec;
-      --mute: #6b6b6b;
-
-      --sans: "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
-
       /* One frame at one size for every tag, with the drawing fitted inside.
          Not a viewport unit: sizing off the window changed the drawing, the
          button rows and the page height as you resized. */
       --stage: 560px;
     }
 
-    /* Swapping paper and ink carries the page. Buttons, links, the timeline
-       thumb and every pressed state are built from the pair. */
-    :root[data-theme="dark"] {
-      color-scheme: dark;
-      --paper: #000;
-      --ink: #fff;
-      --rule: #333;
-      --rule-soft: #222;
-      --mute: #9a9a9a;
-    }
 
     * { box-sizing: border-box; }
 
@@ -73,48 +47,10 @@
       margin: 0 auto;
       padding: 28px 24px 56px;
       max-width: 1000px;
-      background: var(--paper);
-      color: var(--ink);
       font-family: var(--sans);
       -webkit-font-smoothing: antialiased;
     }
 
-    a { color: var(--ink); text-underline-offset: 3px; text-decoration-thickness: 1px; }
-    a:hover { text-decoration-color: var(--mute); }
-    :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
-
-    /* --- theme ------------------------------------------------------------- */
-
-    .topbar { display: flex; justify-content: flex-end; gap: 4px; }
-
-    #theme,
-    #fullscreen {
-      position: relative;
-      width: 30px; height: 30px; padding: 0;
-      display: grid; place-items: center;
-      background: none; border: 1px solid transparent; border-radius: 4px;
-      color: var(--mute); cursor: pointer;
-    }
-    #theme:hover,
-    #fullscreen:hover { color: var(--ink); border-color: var(--rule); }
-    #theme svg,
-    #fullscreen svg {
-      grid-area: 1 / 1;
-      width: 16px; height: 16px;
-      transition: opacity .2s ease, transform .3s cubic-bezier(.4, 0, .2, 1);
-    }
-    /* Both icons are always in the box. The inactive one winds away. */
-    #theme .moon { opacity: 0; transform: rotate(-90deg) scale(.5); }
-    :root[data-theme="dark"] #theme .sun { opacity: 0; transform: rotate(90deg) scale(.5); }
-    :root[data-theme="dark"] #theme .moon { opacity: 1; transform: none; }
-
-    body, .stage, button, .gml-transport .rail, .gml-transport .fill {
-      transition: background-color .2s ease, border-color .2s ease, color .2s ease;
-    }
-
-    @media (prefers-reduced-motion: reduce) {
-      body, .stage, button, #theme svg { transition: none; }
-    }
 
 
     /* --- fullscreen -------------------------------------------------------- */
@@ -123,14 +59,20 @@
        browser's fullscreen API: this works inside an iframe, leaves the
        address bar alone, and survives a reload through ?fullscreen. Escape
        exits. */
-    :root[data-fullscreen] body { max-width: none; padding: 0; height: 100vh; overflow: hidden; }
+    :root[data-fullscreen] body { max-width: none; padding: 0; height: 100vh; overflow: hidden; background: #000; }
     :root[data-fullscreen] .masthead,
     :root[data-fullscreen] #index,
+    :root[data-fullscreen] #readout,
     :root[data-fullscreen] footer.page { display: none; }
     :root[data-fullscreen] .layout { display: block; }
     :root[data-fullscreen] .deck { width: 100vw; }
     :root[data-fullscreen] .stage { width: 100vw; height: 100vh; aspect-ratio: auto; border: 0; }
     :root[data-fullscreen] .topbar { position: fixed; top: 10px; right: 14px; z-index: 4; }
+    /* These buttons sit on the black drawing, not on the page's paper. */
+    :root[data-fullscreen] .topbar {
+      --ink: #fff; --mute: #aaa; --rule: #555;
+      background: #000d; border-radius: 6px;
+    }
 
     :root[data-fullscreen] .transport,
     :root[data-fullscreen] .switches {
@@ -153,11 +95,24 @@
       overflow-y: auto;
     }
 
-    /* On a phone, fullscreen is for looking at the work. The chips want more
-       room than there is and sit right on top of the tag, so they wait
-       behind the shrink button. */
-    @media (max-width: 700px) {
+    /* Narrow and short fullscreen views are for looking at the work. The
+       chips return with the shrink button instead of sitting over the tag. */
+    @media (max-width: 700px), (max-height: 500px) {
       :root[data-fullscreen] .switches { display: none; }
+    }
+
+    /* A short landscape frame has no spare height for an overlay. Let the
+       transport take its actual row height and fit the drawing above it. */
+    @media (max-height: 500px) {
+      :root[data-fullscreen] .deck {
+        display: flex; flex-direction: column; gap: 12px;
+        height: 100vh; height: 100dvh; padding: 48px 18px 12px;
+      }
+      :root[data-fullscreen] .stage { flex: 1; min-height: 0; width: 100%; height: auto; }
+      :root[data-fullscreen] .transport {
+        position: static; flex: none; transform: none;
+        width: min(640px, 100%); margin: 0 auto;
+      }
     }
 
     /* Both glyphs live in the button, like the theme toggle. */
@@ -474,30 +429,6 @@
     switches(player, document.getElementById('switches'));
 
     const root = document.documentElement;
-    const theme = document.getElementById('theme');
-
-    // Private browsing makes localStorage throw rather than return nothing.
-    function savedTheme() {
-      try { return localStorage.getItem('theme'); } catch (e) { return null; }
-    }
-
-    function setTheme(dark) {
-      root.dataset.theme = dark ? 'dark' : 'light';
-      theme.setAttribute('aria-label', 'Switch to ' + (dark ? 'light' : 'dark') + ' theme');
-    }
-
-    setTheme(root.dataset.theme === 'dark');
-
-    theme.addEventListener('click', () => {
-      const dark = root.dataset.theme !== 'dark';
-      setTheme(dark);
-      try { localStorage.setItem('theme', dark ? 'dark' : 'light'); } catch (e) {}
-    });
-
-    // Follow the system until the reader picks a side.
-    matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
-      if (!savedTheme()) setTheme(e.matches);
-    });
 
     const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
 

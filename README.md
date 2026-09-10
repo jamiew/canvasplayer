@@ -78,6 +78,9 @@ http://localhost:8420/examples/iframe.html or one of the pages below.
 They use relative module imports, with no bundler or import map.
 These files live in the repo, not the npm package. When copying them, keep
 the module and examples directory layout or adjust their import paths.
+The gallery, player and drawing pages also need `examples/demo-theme.js` and
+`examples/demo-theme.css`. The gallery shares `examples/demo-header.css` with
+the main demo. These keep the theme and navigation consistent across pages.
 
 | Example | What to copy |
 |---|---|
@@ -112,8 +115,13 @@ You can also frame the full demo:
 Here, fullscreen means filling the iframe with the demo layout, not taking
 over the browser screen. It needs no fullscreen permission.
 
-- Set a width and height on the iframe. The player fits its own stage; it
-  does not automatically set the height of the outer iframe.
+- Set a width and height on the iframe. Keep scrolling available when using a
+  fixed height, especially at narrow widths. The player fits its own stage;
+  it does not automatically set the height of the outer iframe.
+- The same-origin gallery includes a small `ResizeObserver` sizing script.
+  It fits the player and drawing frames to their content and shrinks a frame
+  after removal. Its source includes a copyable example. Cross-origin hosts
+  cannot use this DOM measurement.
 - The host's `frame-src` policy must permit the player URL. The player server
   must also allow framing through its `frame-ancestors` and `X-Frame-Options`
   headers.
@@ -241,12 +249,16 @@ subdivisions when enabled.
 
 The curve uses recorded neighbours, not the moving tip, so playback no longer
 bends ink already drawn. This is separate from the `smoothing` preparation
-option, which smooths speed measurements for line width. Dyna retains its
-own spring-based brush motion.
+option, which smooths speed measurements for line width. Dyna caches its
+spring trajectory and ribbon normals, so playback and moving fade slices
+reveal the same ink rather than reshaping it.
 
 WebGL updates only the active ribbon edge and simulates dust in fixed
 1/120-second tag-time steps. Catch-up work after a long stall is capped at
 one second per display frame.
+Dust impulses stay in capture units rather than grid-cell units, so grid
+density does not multiply the force. Gravity scales with the artwork.
+Portrait frames adjust camera distance without resetting orbit or zoom.
 
 Time as depth and the particle dust are the WebGL renderer's, not the 2D
 one's. A 2D version of them lived on the `native-3d` branch, kept at the
@@ -258,6 +270,9 @@ dark toggle. It is a layout mode rather than the browser's fullscreen API, so
 it works in an iframe and can be linked to with `?fullscreen=1`. Escape
 exits. The renderer links carry the tag across, so switching renderer keeps
 showing what you were looking at.
+Narrow and short fullscreen views hide the settings panel; leave fullscreen
+to change the ink. Short frames reserve room for the transport below the
+drawing instead of covering it.
 
 6 data layers, for checking a tag. `ink` and `drips` are the drawing.
 `vectors` are arrows for direction and speed. `points` marks every sample.

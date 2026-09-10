@@ -243,7 +243,7 @@ export function switches(player, host) {
   row('Effects', can.effects, 'set', name => player.effects[name], name => player.setEffect(name, !player.effects[name]));
   row('Data', can.layers, 'set', name => player.layers[name], name => player.setLayer(name, !player.layers[name]));
 
-  host.appendChild(about);
+  if (descriptions.size) host.appendChild(about);
   rest();
   const config = () => {
     syncs.forEach(sync => sync());

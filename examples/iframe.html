@@ -3,22 +3,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>canvasplayer: iframe embedding</title>
+<script src="./demo-theme.js"></script>
+<link rel="stylesheet" href="./demo-theme.css">
 <link rel="stylesheet" href="./demo-header.css">
 <style>
-  :root {
-    color-scheme: light;
-    --paper: #fff; --ink: #000; --rule: #d9d9d9; --rule-soft: #ececec; --mute: #6b6b6b;
-    --sans: "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
-  }
   * { box-sizing: border-box; }
   body {
     margin: 0 auto; padding: 28px 24px 56px; max-width: 1000px;
-    background: var(--paper); color: var(--ink); font-family: var(--sans);
+    font-family: var(--sans);
     -webkit-font-smoothing: antialiased;
   }
-  a { color: var(--ink); text-underline-offset: 3px; text-decoration-thickness: 1px; }
-  a:hover { text-decoration-color: var(--mute); }
-  :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
   main { font-size: 14px; line-height: 1.6; }
   h2 { margin: 0 0 10px; font-size: 20px; letter-spacing: -0.025em; line-height: 1.25; }
   p { margin: 0 0 14px; }
@@ -27,9 +21,8 @@
   .example-grid { display: grid; grid-template-columns: minmax(0, 560px) minmax(0, 1fr); gap: 24px; align-items: start; }
   .example-copy { min-width: 0; }
   iframe { display: block; width: 100%; border: 1px solid var(--ink); background: #000; }
-  .player-frame { height: 800px; background: var(--paper); }
+  .player-frame, .drawing-frame { height: 800px; background: var(--paper); }
   .playback-frame { aspect-ratio: 1; }
-  .drawing-frame { height: 800px; background: var(--paper); }
   code { font-size: 12px; overflow-wrap: anywhere; }
   pre { margin: 16px 0; padding: 14px; border: 1px solid var(--rule-soft); white-space: pre-wrap; overflow-wrap: anywhere; }
   .guidance { padding-top: 28px; border-top: 1px solid var(--rule-soft); max-width: 72ch; }
@@ -46,11 +39,20 @@
     .example-grid { grid-template-columns: minmax(0, 560px); justify-content: center; gap: 18px; }
     .example-copy { grid-row: 1; }
   }
-  @media (max-width: 440px) {
-    .player-frame { height: 1120px; }
-    .drawing-frame { height: 640px; }
-  }
 </style>
+<div class="topbar">
+  <button id="theme" type="button" aria-label="Switch to dark theme">
+    <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="2" stroke-linecap="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="4.2"/>
+      <path d="M12 1.8v2.4M12 19.8v2.4M4.4 4.4l1.7 1.7M17.9 17.9l1.7 1.7M1.8 12h2.4M19.8 12h2.4M4.4 19.6l1.7-1.7M17.9 6.1l1.7-1.7"/>
+    </svg>
+    <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M20.8 13.4A8.6 8.6 0 1 1 10.6 3.2a6.7 6.7 0 0 0 10.2 10.2z"/>
+    </svg>
+  </button>
+</div>
 <header class="masthead">
   <h1>canvasplayer</h1>
   <p class="tagline">
@@ -63,7 +65,8 @@
   <div class="intro">
     <h2>Embed with an iframe</h2>
     <p>Three ways to show the same <a href="https://000000book.com/data/100">tag #100</a>.
-      This host page imports no JavaScript or player CSS. Each frame owns its drawing and, when needed, its controls.</p>
+      Each frame owns its drawing and, when needed, its controls. This host loads only shared demo theming and
+      a same-origin frame sizing script, not the player modules or controls stylesheet.</p>
   </div>
 
   <section class="example" aria-labelledby="player-heading">
@@ -73,11 +76,13 @@
         <h2 id="player-heading">Full player with controls</h2>
         <p>Play, pause, scrub and change the ink. This example includes the optional controls and a remove button that releases the player.</p>
         <p><a href="./player.html">Open the player on its own</a></p>
-        <pre><code>&lt;iframe src="./player.html"
+        <pre><code>&lt;iframe class="player-frame" src="./player.html"
   title="Graffiti player"
   loading="lazy"
-  style="width:100%;height:1120px;border:0"&gt;
+  style="width:100%;height:800px;border:0"&gt;
 &lt;/iframe&gt;</code></pre>
+        <p>This minimal embed uses a fixed height and scrolls if its content needs more room.
+          The gallery instead fits the frame to its content, including after you remove the player.</p>
       </div>
     </div>
   </section>
@@ -107,11 +112,12 @@
         <p>One frame, painted once. This example uses <code>parse</code>, <code>prepare</code> and <code>paint</code>:
           no player, animation loop or controls.</p>
         <p><a href="./draw.html">Open the drawing on its own</a></p>
-        <pre><code>&lt;iframe src="./draw.html"
+        <pre><code>&lt;iframe class="drawing-frame" src="./draw.html"
   title="Finished graffiti drawing"
   loading="lazy"
   style="width:100%;height:800px;border:0"&gt;
 &lt;/iframe&gt;</code></pre>
+        <p>The gallery fits this frame to the drawing and its wrapped text. The fixed height above is a standalone starting point.</p>
       </div>
     </div>
   </section>
@@ -122,8 +128,13 @@
     <ul>
       <li>Replace <code>src</code> with the absolute HTTPS URL of your hosted example. Serve the modules and
         <code>tag.json</code> alongside it over HTTP or HTTPS, not <code>file://</code>.</li>
-      <li>Set the frame size on the host page. The drawing fits its stage, but the player does not resize the outer iframe.
-        Leave enough height for controls or introductory text.</li>
+      <li>Set the frame size on the host page. The minimal examples above use a fixed height for text and controls;
+        check your chosen height at narrow widths and keep scrolling available. Animation-only frames stay square.</li>
+      <li>This gallery uses <code>ResizeObserver</code> on each same-origin player and drawing page's body.
+        Their content determines the frame height, so wrapped controls fit and removing the player shrinks its frame.
+        Place the sizing script below after the matching iframes on the same origin; it cannot measure cross-origin content.</li>
+      <li>The gallery, player and drawing share the demo theme through same-origin storage.
+        They follow the system until you choose a theme. The animation-only frame stays black and loads no UI or theme files.</li>
       <li>The host's <code>frame-src</code> policy must allow the player URL. The player's
         <code>frame-ancestors</code> and <code>X-Frame-Options</code> headers must allow the host.</li>
       <li>If you add a sandbox, module loading and playback need <code>allow-scripts allow-same-origin</code>.
@@ -133,10 +144,44 @@
     <p>You can also embed the full demo with
       <a href="../?renderer=canvas&amp;id=147&amp;fullscreen=1"><code>../?renderer=canvas&amp;id=147&amp;fullscreen=1</code></a>
       as the source. That version loads its tag from 000000book rather than the bundled JSON.</p>
+    <pre><code>&lt;script&gt;
+document.querySelectorAll('.player-frame, .drawing-frame').forEach(frame =&gt; {
+  let observer;
+  frame.addEventListener('load', () =&gt; {
+    if (observer) observer.disconnect();
+    const body = frame.contentDocument?.body;
+    if (!body) return;
+    observer = new ResizeObserver(() =&gt; {
+      const style = getComputedStyle(frame);
+      const border = parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
+      frame.style.height = Math.ceil(body.getBoundingClientRect().height + border) + 'px';
+    });
+    observer.observe(body);
+  });
+});
+&lt;/script&gt;</code></pre>
   </section>
 </main>
 <footer class="page">
   <p><a href="https://github.com/jamiew/canvasplayer">github.com/jamiew/canvasplayer</a></p>
   Public domain, Jamie Wilkinson &amp; Free Art &amp; Technology (F.A.T.) Lab. No rights reserved.
 </footer>
+<script>
+  document.querySelectorAll('.player-frame, .drawing-frame').forEach(frame => {
+    let observer;
+    frame.addEventListener('load', () => {
+      if (observer) observer.disconnect();
+      const body = frame.contentDocument?.body;
+      if (!body) return;
+      observer = new ResizeObserver(() => {
+        // scrollHeight includes the old viewport height and cannot shrink a frame.
+        // These pages keep their vertical spacing inside the observed body.
+        const style = getComputedStyle(frame);
+        const border = parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
+        frame.style.height = Math.ceil(body.getBoundingClientRect().height + border) + 'px';
+      });
+      observer.observe(body);
+    });
+  });
+</script>
 </html>

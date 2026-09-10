@@ -110,6 +110,7 @@ export class ThreePlayer {
     this.capabilities = { modes: [], effects: [], layers: [], about: {} };
 
     this.camera3 = { yaw: 0, pitch: 0, dist: this.opts.dist };
+    this.cameraDistanceScale = 1;
     this.dragging = false;
 
     this.renderer = new this.THREE.WebGLRenderer({ canvas, antialias: true });
@@ -364,7 +365,9 @@ export class ThreePlayer {
     if (this.dotGeo) this.uploadDust();
   }
 
-  // The head's own motion, spread into the field over a few cells.
+  // The head's own motion, spread into the field over a few cells. Positions,
+  // field impulses and particle velocities all use capture units; only the
+  // lookup and the injection radius use cells.
   inject(x, y, stroke) {
     if (stroke !== this.injectLastStroke) {
       this.injectLastStroke = stroke;
@@ -376,13 +379,16 @@ export class ThreePlayer {
     const dy = y - this.injectLastY;
     this.injectLastX = x;
     this.injectLastY = y;
-    if (Math.abs(dx) < 1e-6 && Math.abs(dy) < 1e-6) return;
+    if (dx === 0 && dy === 0) return;
 
     const { opts, field } = this;
     const cx = (x - this.stage.x0) / this.cw;
     const cy = (y - this.stage.y0) / this.ch;
-    const vx = (dx / this.cw) * opts.injectScale;
-    const vy = (dy / this.ch) * opts.injectScale;
+    // Dividing these by cell size made cell-space motion act as capture-space
+    // velocity. A denser grid then flung particles farther, drawing huge rays
+    // back to their origins even though the fixed-step integrator was stable.
+    const vx = dx * opts.injectScale;
+    const vy = dy * opts.injectScale;
     const R = opts.injectRadius;
 
     for (let j = Math.max(0, Math.floor(cy - R)); j <= Math.min(this.rows - 1, Math.ceil(cy + R)); j++) {
@@ -428,7 +434,9 @@ export class ThreePlayer {
     const { P, field, opts } = this;
     const drag = Math.min(1, opts.friction * dt);
     const push = opts.reactivity * dt;
-    const g = falling ? opts.gravity * dt : 0;
+    // Gravity is specified in artwork sizes per second squared, just like
+    // the world-space drawing. Convert it back to capture units for physics.
+    const g = falling ? opts.gravity * this.size * dt : 0;
     const decay = Math.pow(opts.fieldDecay, dt * 60);
 
     for (let k = 0; k < P.n; k++) {
@@ -507,6 +515,12 @@ export class ThreePlayer {
     // size from the DPR-scaled drawing buffer and grows on every resize.
     this.renderer.setSize(w, h);
     this.camera.aspect = w / h;
+    // Keep the same enclosing sphere in view when width, rather than height,
+    // limits the field of view. Changing the camera's distance multiplier,
+    // not its orbit/zoom state, also preserves a user's view across resize.
+    const halfFov = this.camera.fov * Math.PI / 360;
+    const limitingFov = Math.atan(Math.tan(halfFov) * Math.min(1, this.camera.aspect));
+    this.cameraDistanceScale = Math.sin(halfFov) / Math.sin(limitingFov);
     this.camera.updateProjectionMatrix();
     this.render();
     return this;
@@ -568,10 +582,11 @@ export class ThreePlayer {
 
     const c = this.camera3;
     const ce = Math.cos(c.pitch);
+    const distance = c.dist * this.cameraDistanceScale;
     this.camera.position.set(
-      c.dist * ce * Math.sin(c.yaw),
-      c.dist * Math.sin(c.pitch),
-      c.dist * ce * Math.cos(c.yaw)
+      distance * ce * Math.sin(c.yaw),
+      distance * Math.sin(c.pitch),
+      distance * ce * Math.cos(c.yaw)
     );
     this.camera.up.set(0, 1, 0);
     this.camera.lookAt(0, 0, 0);

@@ -414,8 +414,8 @@ function chisel(s, path, spread) {
  * end of a fast stroke, and the width comes off the brush's own speed rather
  * than the hand's, so the line swells and thins on its own account.
  *
- * The filter only ever looks backwards, so the part of a stroke already on
- * screen never changes as the rest of it arrives.
+ * Filter the recorded trajectory once, then reveal it. Feeding the moving
+ * tip back through smoothing and the spring would move ink already down.
  */
 function dyna(s, p) {
   const { opts } = s;
@@ -449,14 +449,33 @@ function skeleton(ctx, path, spread) {
   }
 }
 
-/*
- * How far back the dyna filter is run before the slice it has to draw.
- * The spring's state is everything it has already seen, so a slice cannot
- * start it afresh; the drag settles it well inside this many samples, so
- * running from here and throwing the warm-up away is indistinguishable from
- * running from the start of the stroke, at a bounded cost.
- */
-const DYNA_WARMUP = 32;
+// Like the ghost layer, retain geometry per context until its inputs change.
+// Fade slices share this trajectory instead of restarting the spring at
+// each slice boundary. The fixed normals keep earlier ribbon edges still.
+const dynaPaths = new WeakMap();
+
+function dynaPath(s, stroke, si, spread) {
+  if (!s.dyna) {
+    const o = s.opts;
+    const key = [s.view.w, s.view.h, o.pad, jitterAmount(s),
+      o.dynaMass, o.dynaSpring, o.dynaDrag, o.dynaDuctus].join('|');
+    let cache = dynaPaths.get(s.ctx);
+    if (!cache || cache.tag !== s.tag || cache.key !== key) {
+      cache = { tag: s.tag, key, strokes: new Map() };
+      dynaPaths.set(s.ctx, cache);
+    }
+    s.dyna = cache.strokes;
+  }
+  let passes = s.dyna.get(stroke);
+  if (!passes) s.dyna.set(stroke, passes = new Map());
+  if (!passes.has(spread)) {
+    const recorded = path(s, stroke, si, 0, stroke.points.length, 0, spread);
+    const filtered = dyna(s, smooth(recorded, 2));
+    for (let i = 0; i < filtered.length; i++) filtered[i].push(...normal(filtered, i));
+    passes.set(spread, filtered);
+  }
+  return passes.get(spread);
+}
 
 function drawStroke(s, stroke, si, from, to, partial, spread) {
   if (s.mode === 'dyna') return drawDyna(s, stroke, si, from, to, partial, spread);
@@ -478,18 +497,20 @@ function drawStroke(s, stroke, si, from, to, partial, spread) {
   }
 }
 
-// Its own function because it is the one brush that needs samples the slice
-// does not contain. smooth() turns n samples into 1 + (n - 1) * steps, so
-// the warm-up is that many entries wide once smoothed.
 function drawDyna(s, stroke, si, from, to, partial, spread) {
-  const steps = 2;
-  const warm = Math.max(0, from - DYNA_WARMUP);
-  const p = path(s, stroke, si, warm, to, partial, spread);
-  if (!p.length) return;
-
-  const filtered = dyna(s, smooth(p, steps));
-  const skip = Math.min((from - warm) * steps, Math.max(filtered.length - 2, 0));
-  return ribbon(s.ctx, skip > 0 ? filtered.slice(skip) : filtered);
+  if (from >= to) return;
+  const filtered = dynaPath(s, stroke, si, spread);
+  // smooth() leaves one- and two-sample strokes alone.
+  const steps = stroke.points.length > 2 ? 2 : 1;
+  const end = Math.min(filtered.length - 1, (to - 1 + partial) * steps);
+  const last = Math.floor(end);
+  const visible = filtered.slice(from * steps, last + 1);
+  if (end > last) {
+    const a = filtered[last];
+    const b = filtered[last + 1];
+    visible.push(a.map((value, i) => lerp(value, b[i], end - last)));
+  }
+  return ribbon(s.ctx, visible);
 }
 
 /*

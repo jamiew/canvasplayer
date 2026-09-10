@@ -390,6 +390,38 @@ describe('ThreePlayer', () => {
     }
   });
 
+  test('dust impulses stay bounded and proportional to the capture scale', () => {
+    const simulate = scale => {
+      const p = new ThreePlayer(stubThree(), stubGlCanvas(), {
+        strokes: [{ points: [[0, 0, 0], [scale, scale, 1]] }]
+      });
+      p.inject(0.5 * scale, 0.5 * scale, 0);
+      p.inject(0.6 * scale, 0.5 * scale, 0);
+      for (let i = 0; i < 480; i++) p.stepDust(1 / 120, 0.5, false);
+      p.uploadDust();
+      const kicked = p.trailPos.slice(0, p.trailGeo.drawRange.count * 3);
+      for (let i = 0; i < 120; i++) p.stepDust(1 / 120, 0.5, true);
+      p.uploadDust();
+      const falling = p.trailPos.slice(0, p.trailGeo.drawRange.count * 3);
+      p.destroy();
+      return { kicked, falling };
+    };
+    const expected = simulate(1);
+    let distance = 0;
+    for (let i = 0; i < expected.kicked.length; i += 6) {
+      distance = Math.max(distance, Math.hypot(
+        expected.kicked[i] - expected.kicked[i + 3],
+        expected.kicked[i + 1] - expected.kicked[i + 4]));
+    }
+    assert.ok(distance > 0.001 && distance < 0.049, 'dust moves without producing multi-artwork-length rays');
+    const smaller = simulate(0.1);
+    for (const phase of ['kicked', 'falling']) {
+      assert.equal(smaller[phase].length, expected[phase].length);
+      assert.ok(smaller[phase].every((value, i) => near(value, expected[phase][i], 1e-5)),
+        phase + ' looks the same at a different capture scale');
+    }
+  });
+
   test('a backwards seek puts the bent ribbon edge back', () => {
     const p = build();
     p.seek(0.3);
@@ -459,10 +491,10 @@ describe('fade slicing', () => {
     const drawn = [];
     const ctx = new Proxy({ globalAlpha: 1, getTransform: () => ({ a: 1, d: 1 }) }, {
       get: (t, k) => (k in t ? t[k] : (...a) => {
-        // Rounded to a thousandth of a pixel: the claim is that drawn ink
-        // does not visibly move, not that a filter reproduces bit for bit.
-        if (k === 'moveTo' || k === 'lineTo' || k === 'arc') {
-          drawn.push(k + a.map(v => typeof v === 'number' ? v.toFixed(3) : v).join(','));
+        // Compare the visible edges, irrespective of which slice starts a
+        // path. Caps at moving slice boundaries are not permanent edges.
+        if (k === 'moveTo' || k === 'lineTo') {
+          drawn.push(a.map(v => v.toFixed(3)).join(','));
         }
       }),
       set: (t, k, v) => { t[k] = v; return true; }
@@ -471,13 +503,10 @@ describe('fade slicing', () => {
     return drawn;
   }
 
-  test('dyna mostly holds its shape when a slice boundary moves', () => {
+  test('dyna keeps written edges when fade slice boundaries move', () => {
     const before = geometry('dyna', 3.34);
     const after = new Set(geometry('dyna', 3.36));
-    const kept = before.filter(g => after.has(g)).length / before.length;
-    // Not 1: it reads its neighbors, so the samples at a slice edge still
-    // move. Was 0.11 before the dyna warm-up.
-    assert.ok(kept > 0.5, 'dyna held ' + kept.toFixed(2));
+    assert.ok(before.every(point => after.has(point)), 'all previously written edges remain fixed');
   });
 });
 
@@ -524,6 +553,17 @@ describe('ribbon geometry', () => {
           'already written edges stay put with smooth=' + smooth + ' at ' + time);
       }
     }
+  });
+
+  test('Dyna reveals a fixed spring trajectory across sparse samples', () => {
+    const before = draw(0.75, false, 'dyna');
+    const written = [before.vertices[0], before.vertices.at(-1)];
+    for (const time of [0.9, 1, 1.25]) {
+      const after = draw(time, false, 'dyna').vertices;
+      assert.ok(written.every(([x, y]) => after.some(([ax, ay]) => near(x, ax) && near(y, ay))),
+        'the beginning of the ribbon stays fixed at ' + time);
+    }
+    assert.deepEqual(draw(0.75, false, 'dyna'), before, 'backwards seeking restores the same ink');
   });
 });
 

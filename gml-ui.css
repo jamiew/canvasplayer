@@ -104,6 +104,8 @@
 /* --- switches ---------------------------------------------------------- */
 
 .gml-switches { display: grid; gap: 8px; }
+/* A renderer without options must not leave an empty settings panel. */
+.gml-switches:empty { display: none; }
 /* 70px is INK MODE on one line, the widest of the three labels. */
 .gml-switches .row { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 12px; align-items: start; }
 .gml-switches .label {

@@ -27,6 +27,26 @@ One parser, two renderers, four modules. `gml.js` is shared and pure.
   animation without UI imports, and a static drawing. All three fit the
   checked 320px, 390px, 859px and 1280px gallery layouts.
 
+## Visual QA fixes
+
+- Fixed WebGL dust impulses mixing grid-cell and capture units. Dust and
+  trails still animate, but no longer shoot across the frame. Portrait
+  framing now accounts for horizontal field of view without resetting zoom.
+- Dyna reveals a cached spring trajectory with fixed ribbon normals. On
+  tag #100 at 00.48 and 00.72, the previously moving edge now measures 0px
+  drift. Fade slice boundaries preserve the same written edges.
+- Fullscreen corner icons stay white on black when hovered. Empty WebGL
+  settings panels are hidden. Short landscape views put transport below the
+  drawing and hide settings. Mode labels no longer crossfade through grey.
+- Main and gallery share theme code, palette and topbar styles. Header
+  coordinates match at desktop and narrow mobile sizes. Theme changes reach
+  the same-origin player and drawing frames.
+- Gallery frame heights follow their content, including after removal. At
+  390px, the player frame is 741px rather than 1120px, with no clipping.
+- Verified 48 canvas mode/theme/layout combinations in Chromium, plus WebGL
+  playback and gallery sizing. Control geometry stayed at 0px state-only
+  change across nine normal and four fullscreen viewports. All 52 tests pass.
+
 ## Merging the branches back, September 2026
 
 Three long-lived branches were three copies of the same shared code, and

@@ -1,4 +1,31 @@
 /* Shared masthead for the demo and its iframe gallery. */
+.topbar { display: flex; justify-content: flex-end; gap: 4px; }
+
+#theme,
+#fullscreen {
+  position: relative;
+  width: 30px; height: 30px; padding: 0;
+  display: grid; place-items: center;
+  background: none; border: 1px solid transparent; border-radius: 4px;
+  color: var(--mute); cursor: pointer;
+}
+#theme:hover,
+#fullscreen:hover { color: var(--ink); border-color: var(--rule); }
+#theme svg,
+#fullscreen svg {
+  grid-area: 1 / 1;
+  width: 16px; height: 16px;
+  transition: opacity .2s ease, transform .3s cubic-bezier(.4, 0, .2, 1);
+}
+/* Both icons are always in the box. The inactive one winds away. */
+#theme .moon { opacity: 0; transform: rotate(-90deg) scale(.5); }
+:root[data-theme="dark"] #theme .sun { opacity: 0; transform: rotate(90deg) scale(.5); }
+:root[data-theme="dark"] #theme .moon { opacity: 1; transform: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  #theme svg, #fullscreen svg { transition: none; }
+}
+
 .masthead { text-align: center; margin-bottom: 26px; }
 
 h1 {
