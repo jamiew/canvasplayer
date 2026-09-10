@@ -256,6 +256,18 @@
     }
     .stage .status[hidden] { display: none; }
 
+    /* A status is two or three words, so caps and tracking suit it. An error
+       is a sentence, and that treatment makes a sentence unreadable. */
+    .stage .status.error {
+      font-size: 12.5px; letter-spacing: 0; text-transform: none;
+      line-height: 1.4; max-width: 30em;
+    }
+
+    .notice {
+      margin: 8px 0 0; font-size: 12px; line-height: 1.4;
+      color: var(--mute);
+    }
+
     .transport { margin-top: 14px; }
 
     /* --- readout ---------------------------------------------------------- */
@@ -354,7 +366,8 @@
       <a href="https://fffff.at/gml-week-graffiti-markup-language/">Graffiti Markup Language</a>
       visualization demo. <a href="https://github.com/jamiew/canvasplayer">View code on GitHub</a>
     </p>
-    <p class="renderers"><a href="./" aria-current="page">2D Canvas</a><a href="native-3d/">Native 3D</a><a href="threejs/">three.js / WebGL</a></p>
+    <p class="renderers"><a href="?renderer=canvas" data-renderer="canvas">2D Canvas</a><a href="?renderer=webgl" data-renderer="webgl">three.js / WebGL</a></p>
+    <p class="notice" id="notice" role="status" hidden></p>
   </header>
 
   <div class="layout">
@@ -378,7 +391,7 @@
     <div class="deck">
       <div class="stage">
         <canvas id="canvas"></canvas>
-        <div class="status" id="status">Loading</div>
+        <div class="status" id="status" role="status">Loading</div>
       </div>
       <div class="transport" id="transport"></div>
       <div id="readout">&mdash;</div>
@@ -445,9 +458,44 @@
     const status = document.getElementById('status');
     const readout = document.getElementById('readout');
 
+    /*
+     * Which renderer, from ?renderer=. A canvas can only ever have one kind
+     * of context, so this is a page-load choice rather than a switch: the
+     * links reload rather than swapping the player under the controls.
+     *
+     * three.js is fetched here and nowhere else. Someone who never asks for
+     * WebGL never pays its 167 KB, which is why it is an await import()
+     * rather than a line at the top of the file.
+     */
+    const askedFor = new URLSearchParams(document.location.search).get('renderer');
+    const canvas = document.getElementById('canvas');
+    let player;
+    let renderer = 'canvas';
+
+    if (askedFor === 'webgl') {
+      try {
+        const [THREE, { ThreePlayer }] = await Promise.all([
+          import('./three.module.min.js'),
+          import('./gml-three.js')
+        ]);
+        player = new ThreePlayer(THREE, canvas);
+        renderer = 'webgl';
+      } catch (e) {
+        // No WebGL, or three failed to load. Say so and draw it flat, which
+        // beats a page that sits on "Loading" forever.
+        const notice = document.getElementById('notice');
+        notice.textContent = 'This browser could not start WebGL, so the tag is drawn on a 2D canvas instead.';
+        notice.hidden = false;
+      }
+    }
+    if (!player) player = new GmlPlayer(canvas);
+
+    document.querySelectorAll('.renderers a').forEach(a => {
+      if (a.dataset.renderer === renderer) a.setAttribute('aria-current', 'page');
+    });
+
     // One player, re-fed on every tag, so the mode, effects and data layers
     // survive a change of tag. The controls are built once, here.
-    const player = new GmlPlayer(document.getElementById('canvas'));
     transport(player, document.getElementById('transport'));
     switches(player, document.getElementById('switches'));
 
@@ -549,17 +597,17 @@
      * keep showing what you were already looking at.
      */
     function syncRenderers() {
-      const params = new URLSearchParams(document.location.search);
-      // ?random and ?latest would each resolve again on the other renderer
-      // and land on a different tag, so once one has loaded the links name it.
-      if (player.tag && player.tag.id) {
-        params.delete('latest');
-        params.delete('random');
-        params.set('id', player.tag.id);
-      }
-      const query = params.toString();
       document.querySelectorAll('.renderers a').forEach(a => {
-        a.href = a.getAttribute('href').split('?')[0] + (query ? '?' + query : '');
+        const params = new URLSearchParams(document.location.search);
+        // ?random and ?latest would resolve again on the other renderer and
+        // land on a different tag, so once one has loaded the links name it.
+        if (player.tag && player.tag.id) {
+          params.delete('latest');
+          params.delete('random');
+          params.set('id', player.tag.id);
+        }
+        params.set('renderer', a.dataset.renderer);
+        a.href = '?' + params.toString();
       });
     }
 
@@ -574,6 +622,7 @@
       const current = document.getElementById('link-' + tagId);
       if (current) current.setAttribute('aria-current', 'page');
       status.hidden = false;
+      status.className = 'status';
       status.textContent = 'Loading #' + tagId;
 
       // Click two tags quickly and the answers can come back in either
@@ -585,6 +634,7 @@
         else status.textContent = '#' + tagId + ' has no stroke data';
       }, err => {
         if (mine !== wanted) return;
+        status.className = 'status error';
         status.textContent = err.message;
       });
     }
