@@ -177,8 +177,8 @@
     }
 
 
-    /* Which renderer you are looking at. The three are separate branches,
-       published side by side, so this is how you get between them. */
+    /* Switching renderer reloads the page: a canvas cannot change its
+       context type after either renderer has claimed it. */
     .renderers { margin: 10px 0 0; font-size: 12px; color: var(--mute); }
     .renderers a { color: var(--mute); text-decoration: none; margin: 0 6px; }
     .renderers a:hover { color: var(--ink); text-decoration: underline; }
@@ -555,8 +555,9 @@
 
     // ?id=154, ?latest or ?random, as it has always worked. Katsu by default.
     function tagFromUrl() {
-      const search = document.location.search;
-      return (search.match(/id=(\d+)/) || [])[1] || (search.match(/latest|random/) || [])[0] || 161;
+      const params = new URLSearchParams(document.location.search);
+      const id = params.get('id');
+      return id && /^\d+$/.test(id) ? id : params.has('latest') ? 'latest' : params.has('random') ? 'random' : 161;
     }
 
     function show(data) {
@@ -611,6 +612,18 @@
         params.set('renderer', a.dataset.renderer);
         a.href = '?' + params.toString();
       });
+
+      // Tag links change the selection, not the renderer or layout. Update
+      // the href too, so opening one in a new tab keeps those choices.
+      document.querySelectorAll('#index a[href^="?"]').forEach(a => {
+        const target = new URL(a.href);
+        const params = new URLSearchParams(document.location.search);
+        for (const key of ['id', 'latest', 'random']) {
+          params.delete(key);
+          if (target.searchParams.has(key)) params.set(key, target.searchParams.get(key));
+        }
+        a.href = '?' + params.toString();
+      });
     }
 
     // Nothing to undo on failure: the frame keeps its status and the
@@ -644,6 +657,7 @@
     // Follow the tag links without a reload, so the controls keep their state.
     document.querySelectorAll('#index a[href^="?"]').forEach(link => {
       link.addEventListener('click', e => {
+        if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
         e.preventDefault();
         history.pushState({}, '', link.getAttribute('href'));
         go();

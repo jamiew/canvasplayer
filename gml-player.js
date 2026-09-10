@@ -244,6 +244,8 @@ function smooth(path, steps) {
 
 // The normal at sample i, scaled to half the width there.
 function normal(path, i) {
+  // A stationary nib has no tangent; use a vertical width tick.
+  if (path.length === 1) return [0, path[0][2] / 2];
   const prev = path[Math.max(i - 1, 0)];
   const next = path[Math.min(i + 1, path.length - 1)];
   const tx = next[0] - prev[0];
@@ -302,11 +304,16 @@ function ribbon(ctx, path, outline) {
 }
 
 function polyline(ctx, path, width) {
-  if (path.length < 2) return;
+  if (!path.length) return;
   ctx.lineWidth = width;
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
   ctx.beginPath();
+  if (path.length === 1) {
+    ctx.arc(path[0][0], path[0][1], width / 2, 0, TAU);
+    ctx.fill();
+    return;
+  }
   ctx.moveTo(path[0][0], path[0][1]);
   for (let i = 1; i < path.length; i++) ctx.lineTo(path[i][0], path[i][1]);
   ctx.stroke();
@@ -322,6 +329,17 @@ function chisel(s, path, spread) {
   const half = opts.nib * view.unit * spread / 2;
   const nx = Math.cos(opts.nibAngle) * half;
   const ny = Math.sin(opts.nibAngle) * half;
+
+  if (path.length === 1) {
+    // A tap leaves the angled nib's footprint, not a zero-area ribbon.
+    ctx.lineWidth = Math.max(opts.hairline * spread, 0.5);
+    ctx.lineCap = 'butt';
+    ctx.beginPath();
+    ctx.moveTo(path[0][0] - nx, path[0][1] - ny);
+    ctx.lineTo(path[0][0] + nx, path[0][1] + ny);
+    ctx.stroke();
+    return;
+  }
 
   /*
    * Every segment's quad in one path, all wound the same way, filled once.
@@ -353,6 +371,25 @@ function chisel(s, path, spread) {
   ctx.fill();
 }
 
+// Retain the written aerosol prefix as native paths, not another bitmap.
+// Append new samples; keep the moving tip out of the cache. One union fill
+// preserves overlap opacity, unlike compositing separately cached chunks.
+const sprays = new WeakMap();
+
+function sprayCache(s, stroke, spread) {
+  const key = ghostKey(s) + '|' + s.view.w + '|' + s.view.h;
+  let entry = sprays.get(s.ctx);
+  if (!entry || entry.tag !== s.tag || entry.key !== key) {
+    entry = { tag: s.tag, key, strokes: new Map() };
+    sprays.set(s.ctx, entry);
+  }
+  let cache = entry.strokes.get(stroke);
+  if (!cache) entry.strokes.set(stroke, cache = new Map());
+  let paths = cache.get(spread);
+  if (!paths) cache.set(spread, paths = { count: 0, halo: new Path2D(), ink: new Path2D() });
+  return paths;
+}
+
 /*
  * Aerosol.
  *
@@ -363,41 +400,77 @@ function chisel(s, path, spread) {
  * landing on wet paint does not double its darkness, and density reads as
  * coverage, which is what an aerosol actually does.
  */
-function spray(s, p, spread, at) {
+function spray(s, stroke, si, from, to, partial, spread) {
   const { ctx, opts } = s;
   const base = ctx.globalAlpha;
+  const paths = from === 0 && typeof Path2D !== 'undefined' ? sprayCache(s, stroke, spread) : null;
 
-  // Overspray first, as a soft band for the grit to sit on.
+  // A slice past the start, a backwards seek or a fade slice that shrank: a
+  // native prefix cannot be cut, so this frame is built from scratch. The
+  // cache keeps what it has for when the head catches up. Rebuilding it
+  // instead threw it away every few frames with fade on, as the slice
+  // boundaries moved.
+  if (!paths || paths.count > to) {
+    const p = path(s, stroke, si, from, to, partial, spread);
+    if (!p.length) return;
+    ctx.globalAlpha = base * opts.sprayHalo;
+    ctx.beginPath();
+    sprayHalo(ctx, p);
+    ctx.fill();
+    ctx.globalAlpha = base;
+    ctx.beginPath();
+    sprayInk(ctx, p, opts, spread, from);
+    ctx.fill();
+    return;
+  }
+
+  if (paths.count < to) {
+    const p = path(s, stroke, si, paths.count, to, 0, spread);
+    sprayHalo(paths.halo, p);
+    sprayInk(paths.ink, p, opts, spread, paths.count);
+    paths.count = to;
+  }
+  let { halo, ink } = paths;
+  if (partial > 0 && to > 0 && to < stroke.points.length) {
+    // Clone the native prefix only when there is an interpolated tip. It
+    // must share the fill, but must not become permanent ink on the next frame.
+    const tip = path(s, stroke, si, to - 1, to, partial, spread).slice(1);
+    halo = new Path2D(halo);
+    ink = new Path2D(ink);
+    sprayHalo(halo, tip);
+    sprayInk(ink, tip, opts, spread, to);
+  }
   ctx.globalAlpha = base * opts.sprayHalo;
-  ctx.beginPath();
+  ctx.fill(halo);
+  ctx.globalAlpha = base;
+  ctx.fill(ink);
+}
+
+function sprayHalo(target, p) {
   for (let i = 0; i < p.length; i++) {
     const r = p[i][2] * 0.75;
-    ctx.moveTo(p[i][0] + r, p[i][1]);
-    ctx.arc(p[i][0], p[i][1], r, 0, TAU);
+    target.moveTo(p[i][0] + r, p[i][1]);
+    target.arc(p[i][0], p[i][1], r, 0, TAU);
   }
-  ctx.fill();
+}
 
-  ctx.globalAlpha = base;
+function sprayInk(target, p, opts, spread, at) {
   const dot = opts.sprayDot * Math.max(spread, 1);
-  ctx.beginPath();
   for (let i = 0; i < p.length; i++) {
     const half = p[i][2] / 2;
     for (let k = 0; k < opts.sprayDots; k++) {
       // Box-Muller, so the scatter is Gaussian rather than a flat disc.
-      // (at + i), not i: fade slices a stroke, and the slice boundaries
-      // move as it grows. Seeded off the local index, grit already on
-      // screen would rescatter from frame to frame.
+      // Absolute sample identity survives both fade slices and cached prefixes.
       const n = (at + i) * 131 + k;
       const u = Math.max(noise(n, 21), 1e-6);
       const a = noise(n, 37) * TAU;
       const r = Math.sqrt(-2 * Math.log(u)) * opts.spraySpread * half * spread;
       const x = p[i][0] + Math.cos(a) * r;
       const y = p[i][1] + Math.sin(a) * r;
-      ctx.moveTo(x + dot, y);
-      ctx.arc(x, y, dot, 0, TAU);
+      target.moveTo(x + dot, y);
+      target.arc(x, y, dot, 0, TAU);
     }
   }
-  ctx.fill();
 }
 
 /*
@@ -432,9 +505,12 @@ function sketch(s, p, spread, at) {
       const off = (bow * 2 + grain * 0.3) * amp;
       const x = p[i][0] + (nx / len) * off;
       const y = p[i][1] + (ny / len) * off;
-      if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+      if (p.length === 1) {
+        // Each pass leaves its own pen dot, with the same wandering offset.
+        ctx.arc(x, y, ctx.lineWidth / 2, 0, TAU);
+      } else if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
     }
-    ctx.stroke();
+    if (p.length === 1) ctx.fill(); else ctx.stroke();
   }
 }
 
@@ -493,13 +569,13 @@ const DYNA_WARMUP = 32;
 
 function drawStroke(s, stroke, si, from, to, partial, spread) {
   if (s.mode === 'dyna') return drawDyna(s, stroke, si, from, to, partial, spread);
+  if (s.mode === 'spray') return spray(s, stroke, si, from, to, partial, spread);
 
   const p = path(s, stroke, si, from, to, partial, spread);
   if (!p.length) return;
 
   switch (s.mode) {
     case 'chisel': return chisel(s, p, spread);
-    case 'spray': return spray(s, p, spread, from);
     case 'outline':
       s.ctx.lineWidth = Math.max(s.opts.hairline * spread, 0.5);
       s.ctx.lineJoin = 'round';
@@ -780,7 +856,7 @@ function drawSpeedGraph(s, t) {
   });
   ctx.stroke();
 
-  const px = 8 + (t / tag.duration) * (view.w - 16);
+  const px = 8 + (clamp(t, 0, tag.duration) / tag.duration) * (view.w - 16);
   ctx.strokeStyle = '#ffffff';
   ctx.beginPath();
   ctx.moveTo(px, y - 4);
@@ -895,6 +971,8 @@ export function paint(ctx, tag, frame) {
 
   ctx.save();
   ctx.globalAlpha = 1;
+  // A translucent background cannot erase ink from the previous frame.
+  ctx.clearRect(0, 0, frame.w, frame.h);
   ctx.fillStyle = opts.background;
   ctx.fillRect(0, 0, frame.w, frame.h);
 
@@ -940,7 +1018,7 @@ export function paint(ctx, tag, frame) {
  * The canvas sizes itself to its parent, so give that element the
  * dimensions you want. `tag` is the shape parse() returns, and may be left
  * out and load()ed later. Events: 'load' with the prepared tag, 'frame' with
- * { time, duration }, 'state' with { playing }.
+ * { time, duration }, 'state' with { playing }, 'config' without a payload.
  */
 export class GmlPlayer {
   constructor(canvas, tag, options) {
@@ -962,14 +1040,30 @@ export class GmlPlayer {
     if (typeof ResizeObserver !== 'undefined') {
       this.observer = new ResizeObserver(this.onResize);
       this.observer.observe(canvas.parentNode || canvas);
-    } else if (typeof window !== 'undefined') {
-      window.addEventListener('resize', this.onResize);
     }
-    this.resize();
+    if (typeof window !== 'undefined') {
+      window.addEventListener('resize', this.onResize);
+      this.onDensity = () => {
+        if (this.densityQuery) this.densityQuery.removeEventListener('change', this.onDensity);
+        // A resolution query only reports leaving its density. Rearm it to
+        // catch the next move between screens, even at a fixed host size.
+        if (typeof window.matchMedia === 'function') {
+          this.densityQuery = window.matchMedia(`(resolution: ${globalThis.devicePixelRatio || 1}dppx)`);
+          this.densityQuery.addEventListener('change', this.onDensity);
+        }
+        this.resize();
+      };
+      this.onDensity();
+    } else this.resize();
   }
 
   on(name, fn) {
     (this.listeners[name] = this.listeners[name] || []).push(fn);
+    return this;
+  }
+
+  off(name, fn) {
+    if (this.listeners[name]) this.listeners[name] = this.listeners[name].filter(listener => listener !== fn);
     return this;
   }
 
@@ -983,6 +1077,7 @@ export class GmlPlayer {
   load(tag) {
     this.tag = prepare(tag, this.opts);
     this.time = 0;
+    this.ended = false;
     this.emit('load', this.tag);
     if (this.w) this.render();
     return this;
@@ -1022,6 +1117,12 @@ export class GmlPlayer {
 
   play() {
     if (this.playing) return this;
+    // Pausing during the end hold still resumes that hold. Only a completed
+    // run (or an explicit seek to the end) starts a fresh playthrough.
+    if (this.ended) {
+      this.time = 0;
+      this.ended = false;
+    }
     this.playing = true;
     this.last = null;
 
@@ -1034,8 +1135,14 @@ export class GmlPlayer {
 
       // Hold on the finished tag before starting over.
       if (this.time >= this.tag.duration + this.opts.loopDelay / 1000) {
-        if (this.opts.loop) this.time = 0;
-        else { this.time = this.tag.duration; this.pause(); this.render(); return; }
+        if (this.opts.loop) { this.time = 0; this.ended = false; }
+        else {
+          this.time = this.tag.duration;
+          this.ended = true;
+          this.pause();
+          this.render();
+          return;
+        }
       }
       this.render();
       this.raf = globalThis.requestAnimationFrame(step);
@@ -1060,35 +1167,45 @@ export class GmlPlayer {
 
   seek(t) {
     this.time = clamp(t, 0, this.tag.duration);
+    this.ended = this.time === this.tag.duration;
     return this.render();
   }
 
   setLayer(name, on) {
-    if (!LAYERS.includes(name)) return this;
+    if (!LAYERS.includes(name) || this.layers[name] === !!on) return this;
     this.layers[name] = !!on;
+    this.emit('config');
     return this.render();
   }
 
   setEffect(name, on) {
-    if (!EFFECTS.includes(name)) return this;
+    if (!EFFECTS.includes(name) || this.effects[name] === !!on) return this;
     this.effects[name] = !!on;
+    this.emit('config');
     return this.render();
   }
 
   setMode(name) {
-    if (!MODES.includes(name)) return this;
+    if (!MODES.includes(name) || this.mode === name) return this;
     this.mode = name;
+    this.emit('config');
     return this.render();
   }
 
   setSpeed(rate) {
+    if (this.opts.speed === rate) return this;
     this.opts.speed = rate;
+    this.emit('config');
     return this;
   }
 
   destroy() {
     this.pause();
     if (this.observer) this.observer.disconnect();
-    else if (typeof window !== 'undefined') window.removeEventListener('resize', this.onResize);
+    if (typeof window !== 'undefined') window.removeEventListener('resize', this.onResize);
+    if (this.densityQuery) this.densityQuery.removeEventListener('change', this.onDensity);
+    ghosts.delete(this.ctx);
+    sprays.delete(this.ctx);
+    this.listeners = {};
   }
 }

@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>canvasplayer: draw one frame</title>
+<style>
+  body { max-width: 560px; margin: 24px auto; padding: 0 16px; font: 16px/1.5 system-ui, sans-serif; }
+  h1 { font-size: 22px; }
+  canvas { display: block; width: 100%; height: auto; background: #000; }
+</style>
+<h1>Draw one frame</h1>
+<p>No player, animation loop or controls. Just parse, prepare and paint.</p>
+<canvas aria-label="Finished graffiti drawing from tag 100" role="img"></canvas>
+<p id="status" role="status">Loading tag</p>
+<p>Data: <a href="https://000000book.com/data/100">tag #100</a>, captured with eyeSaver-003.
+  See also <a href="player.html">player and controls</a> and <a href="iframe.html">iframe embedding</a>.</p>
+<script type="module">
+  import { parse, prepare } from '../gml.js';
+  import { paint } from '../gml-player.js';
+
+  const status = document.getElementById('status');
+  try {
+    // Bundled real tag data: no external API or CORS setup needed.
+    const response = await fetch('./tag.json');
+    if (!response.ok) throw new Error('Could not load tag: HTTP ' + response.status);
+    const json = await response.json();
+    const tag = prepare(parse(json.gml, json.id));
+    const canvas = document.querySelector('canvas');
+    const size = 560;
+    const dpr = Math.min(devicePixelRatio || 1, 2);
+    canvas.width = canvas.height = Math.round(size * dpr);
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    paint(ctx, tag, { w: size, h: size, time: tag.duration });
+    status.textContent = 'Tag #' + tag.id + ': ' + tag.pointCount + ' recorded points.';
+  } catch (error) {
+    status.textContent = error.message;
+  }
+</script>
+<!-- Public domain, Jamie Wilkinson & Free Art & Technology (F.A.T.) Lab. No rights reserved. -->
+</html>

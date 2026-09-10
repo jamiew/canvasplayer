@@ -9,7 +9,7 @@ One parser, two renderers, four modules. `gml.js` is shared and pure.
   6 data layers. This is what 000000book imports.
 - `gml-ui.js` and `gml-ui.css` build the controls.
 - `gml-three.js` is the optional WebGL dust renderer, after Evan Roth's 3D
-  fork. It imports nothing: you hand it your own `THREE`.
+  fork. It imports shared preparation code, but you supply `THREE`.
 - `index.html` is the demo. It loads tags over JSONP and switches renderer
   with `?renderer=`.
 - `test.js` runs under `node --test`.
@@ -30,7 +30,7 @@ Done. The steps, each one commit:
 
 1. Bring `gml-3d.js` over as `gml-three.js`. `THREE` becomes the first
    constructor argument rather than a top-level import, so the module pulls
-   in nothing on its own and an npm consumer supplies their own copy.
+   in no three.js code on its own and an npm consumer supplies their own copy.
 2. Fix its two live bugs: `uploadDust()` never runs on `load()` or `seek()`,
    so the GPU draws stale buffers; and a browser with no WebGL hangs on
    LOADING forever, because the constructor throws and nothing catches it.
@@ -58,7 +58,8 @@ Done. The steps, each one commit:
 ## Decisions to confirm
 
 - Version is 7.0.0. `VIEWS` is gone, which is a named export removed, so by
-  this project's own rule that is a major. Nothing else published changed.
+  this project's own rule that is a major. `transport()` and `switches()`
+  now return disposal functions rather than their host elements.
 - The license field says Unlicense. The code says public domain, no rights
   reserved. Change it if you want CC0 instead.
 - The name `canvasplayer` is free on npm.
@@ -71,8 +72,59 @@ Done. The steps, each one commit:
 3. Replace the 2009 player in blackbook's `public/canvasplayer/` with these
    files. Drop `processing.min.js`, the `load_gml` callback and
    `iphone_rotate=1`. `isLandscape` makes that call on the client now.
+   Fetch JSON from the same origin. Size the stage and dispose its controls
+   and player on removal. Use one-shot `paint()` calls for browse thumbnails.
 4. Maybe later: parse raw `.gml` XML in the browser with DOMParser. An SVG
    painter, if anyone needs one.
+
+## Review fixes, 10 September 2026
+
+- WebGL frames are capped at 0.1 s like the 2D player. Fed a whole
+  background-tab gap, the field took every stroke crossed in that time at
+  once and blew the dust off the tag on return. The skipped-backlog branch
+  went with it.
+- Dust uploads stop at the last woken particle instead of sending both full
+  buffers every step. The ribbon's bent edge pair is restored only when the
+  head moves to another pair.
+- The spray cache keeps its prefix through a backwards seek or a shrinking
+  fade slice and draws that frame plain, rather than being rebuilt. With
+  fade on it was thrown away every few frames as the slice boundaries moved.
+- Checked in headless Chromium against the committed renderer on tag 147 at
+  the same clock: the same particles wake and travel the same distance.
+
+## Review fixes, 9 September 2026
+
+- Controls initialize from the current player, follow external setter changes
+  and return idempotent disposal functions. Both players provide `off` and
+  changed-only `config` events. Rounded clocks carry into the next second.
+- Transparent 2D frames clear old ink. Every brush and WebGL now draws
+  single-point tags. Completed non-looping 2D playback restarts; the graph
+  playhead stays at the endpoint during the hold.
+- Both players observe pixel density separately from parent layout.
+  WebGL sets CSS dimensions independently of its backing buffer, renders
+  paused loads immediately and removes input handlers on destruction.
+- WebGL interpolates the ribbon and dust head through sparse samples,
+  includes final segments and never injects pen-up jumps. Fixed simulation
+  steps and time-based decay keep 30, 60, 120 and 144 Hz results consistent.
+  Taper values of zero and one remain finite.
+- Tag links preserve renderer and layout parameters, including when opened
+  in a new tab. Package metadata keeps the stylesheet side-effectful.
+- Spray caches native path prefixes without changing overlap opacity.
+  Particle uploads no longer allocate coordinate arrays per particle, and
+  ribbon updates upload only changed vertex pairs.
+- Measured spray in headless Chromium at 560 by 560, with ghost and drips:
+  median of three 20-frame batches. Tag 147 went from 2.27 to 0.26 ms per
+  completed frame, and 1.69 to 0.70 ms while writing. A 10,000-point synthetic
+  stroke went from 24.21 to 2.72 ms completed, and 17.11 to 11.65 ms writing.
+  These are local draw-batch timings, not mobile frame-rate guarantees.
+- All 24 pixel comparisons against uncached spray were identical across
+  forward playback, seeks, bleed, jitter and fade. Focused regressions cover
+  the rendering boundaries, simulation and disposal behavior.
+- Added standalone examples for drawing a frame, mounting a player with
+  disposable controls, and iframe embedding. They share bundled tag #100.
+  Checked playback, seeking, removal and mobile layout in Chromium, plus
+  cross-origin framing with and without a sandbox. README covers hosting
+  policies and the absence of a cross-origin control API.
 
 ## Done, September 2026
 

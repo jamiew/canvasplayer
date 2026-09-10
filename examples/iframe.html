@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>canvasplayer: iframe embedding</title>
+<style>
+  body { max-width: 640px; margin: 24px auto; padding: 0 16px; font: 16px/1.5 system-ui, sans-serif; }
+  h1 { font-size: 22px; }
+  iframe { display: block; width: 100%; height: 800px; border: 1px solid #ccc; }
+</style>
+<h1>Embed with an iframe</h1>
+<p>This host page imports no JavaScript or player CSS. The frame owns its drawing and controls.</p>
+<!-- Replace src with the absolute HTTPS URL of your hosted player page. -->
+<iframe src="./player.html" title="Graffiti player for tag 100" loading="lazy"></iframe>
+<p>The same player page works on its own or in a frame on another site.
+  Its JSON and module URLs resolve relative to the player page, not this host.</p>
+<p>You can also embed the full demo with
+  <code>../?renderer=canvas&amp;id=147&amp;fullscreen=1</code> as the source.
+  That version loads its tag from 000000book rather than the bundled JSON.</p>
+<!-- Public domain, Jamie Wilkinson & Free Art & Technology (F.A.T.) Lab. No rights reserved. -->
+</html>

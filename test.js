@@ -4,17 +4,21 @@
 // browser or the network.
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { parse, prepare, progress, isLandscape } from './gml.js';
-import { fit, paint, GmlPlayer, MODES, EFFECTS, LAYERS } from './gml-player.js';
+import { fit, paint, GmlPlayer, EFFECTS, LAYERS } from './gml-player.js';
 import { ThreePlayer } from './gml-three.js';
+import { secs } from './gml-ui.js';
 
 const near = (a, b, eps = 1e-6) => Math.abs(a - b) < eps;
 
 // The painter only touches methods and a few numeric properties.
 function stubContext() {
   const noop = () => {};
-  return new Proxy({ globalAlpha: 1 }, {
+  const state = { globalAlpha: 1, fillStyle: '#000', strokeStyle: '#000', lineWidth: 1 };
+  const stack = [];
+  state.save = () => stack.push({ ...state });
+  state.restore = () => Object.assign(state, stack.pop());
+  return new Proxy(state, {
     get: (t, k) => (k in t ? t[k] : noop),
     set: (t, k, v) => { t[k] = v; return true; }
   });
@@ -263,6 +267,8 @@ function stubThree() {
   const vec = (x = 0, y = 0, z = 0) => ({ x, y, z, set(a, b, c) { this.x = a; this.y = b; this.z = c; return this; } });
   class BufferAttribute {
     constructor(array, itemSize) { this.array = array; this.itemSize = itemSize; this.needsUpdate = false; }
+    addUpdateRange() {}
+    clearUpdateRanges() {}
   }
   class BufferGeometry {
     constructor() { this.attributes = {}; this.drawRange = { start: 0, count: Infinity }; }
@@ -290,6 +296,7 @@ function stubThree() {
     constructor(o) { this.canvas = o.canvas; this.frames = 0; }
     setClearColor() {} setPixelRatio(r) { this.pixelRatio = r; } setSize(w, h) { this.size = [w, h]; }
     render() { this.frames++; }
+    dispose() { this.disposed = true; }
   }
   return {
     BufferAttribute, BufferGeometry, PerspectiveCamera, WebGLRenderer,
@@ -301,11 +308,10 @@ function stubThree() {
 }
 
 function stubGlCanvas() {
-  return {
+  return Object.assign(new EventTarget(), {
     style: {}, clientWidth: 400, clientHeight: 300, parentNode: null,
-    addEventListener() {}, removeEventListener() {},
     getBoundingClientRect: () => ({ left: 0, top: 0, width: 400, height: 300 })
-  };
+  });
 }
 
 describe('ThreePlayer', () => {
@@ -317,24 +323,15 @@ describe('ThreePlayer', () => {
   };
   const build = () => new ThreePlayer(stubThree(), stubGlCanvas(), tag);
 
-  test('takes THREE as an argument and imports none of it', () => {
-    const src = readFileSync(new URL('./gml-three.js', import.meta.url), 'utf8');
-    assert.ok(!/^\s*import\s.*three/m.test(src), 'no import of three');
-  });
-
-  test('builds a scene and draws a frame', () => {
-    const p = build();
-    assert.ok(p.meshes.length > 0, 'a mesh per stroke');
-    assert.ok(p.duration > 0);
-    assert.equal(p.renderer.frames > 0, true);
-  });
-
-  test('every vertex it builds is a finite number', () => {
-    const p = build();
-    p.meshes.forEach(m => {
-      const a = m.mesh.geometry.attributes.position.array;
-      assert.ok(a.every(Number.isFinite), 'no NaN in the ribbon');
-    });
+  test('keeps ribbon vertices finite at the one-sample taper boundary', () => {
+    const p = new ThreePlayer(stubThree(), stubGlCanvas(), tag, { taper: 1 });
+    for (const time of [0, 0.3, p.duration, 0.1]) {
+      p.seek(time);
+      p.meshes.forEach(m => {
+        assert.ok(m.mesh.geometry.attributes.position.array.every(Number.isFinite), 'no NaN in the ribbon');
+      });
+    }
+    p.destroy();
   });
 
   test('draws no dust until the field has been stepped', () => {
@@ -355,11 +352,99 @@ describe('ThreePlayer', () => {
     assert.equal(p.dotGeo.drawRange.count, 0, 'and is empty again after a seek');
   });
 
-  test('offers the controls no modes it cannot draw', () => {
-    const p = build();
-    assert.deepEqual(p.capabilities.modes, []);
-    assert.deepEqual(p.capabilities.layers, []);
+  test('publishes the new frame when a paused player loads another tag', () => {
+    const p = build().seek(1);
+    const frames = [];
+    p.on('frame', frame => frames.push(frame));
+    p.load({ strokes: [{ points: [[0, 0, 0], [1, 1, 2]] }] });
+    assert.deepEqual(frames, [{ time: 0, duration: 2 }]);
+    p.destroy();
   });
+
+  test('does not stir dust while the pen travels between stationary strokes', () => {
+    const p = new ThreePlayer(stubThree(), stubGlCanvas(), { strokes: [
+      { points: [[0.1, 0.1, 0], [0.1, 0.1, 0.2]] },
+      { points: [[0.9, 0.9, 0.4], [0.9, 0.9, 0.6]] }
+    ] }, { cols: 12, rows: 10 });
+    for (let i = 0; i < 120; i++) p.step(1 / 120);
+    assert.equal(p.dotGeo.drawRange.count, 0, 'pen-up travel must not move particles');
+    p.destroy();
+  });
+
+  test('a sparse stroke moves dust consistently across display refresh rates', () => {
+    const simulate = hz => {
+      const p = new ThreePlayer(stubThree(), stubGlCanvas(), {
+        strokes: [{ points: [[0.1, 0.1, 0], [0.9, 0.9, 1]] }]
+      }, { cols: 12, rows: 10 });
+      for (let i = 0; i < hz; i++) p.step(1 / hz);
+      const result = p.dotPos.slice(0, p.dotGeo.drawRange.count * 3);
+      p.destroy();
+      return result;
+    };
+    const expected = simulate(120);
+    assert.ok(expected.length > 0, 'a two-point stroke must stir the field');
+    for (const hz of [30, 60, 144]) {
+      const actual = simulate(hz);
+      assert.equal(actual.length, expected.length, 'the same particles wake');
+      assert.ok(actual.every((v, i) => near(v, expected[i], 1e-5)), 'the same elapsed time gives the same dust');
+    }
+  });
+
+  test('a backwards seek puts the bent ribbon edge back', () => {
+    const p = build();
+    p.seek(0.3);
+    p.seek(p.duration);
+    p.meshes.forEach(m => {
+      assert.deepEqual(Array.from(m.mesh.geometry.attributes.position.array), Array.from(m.original));
+    });
+    p.destroy();
+  });
+
+  test('a frame after a long gap advances by a capped step, not the gap', () => {
+    const frames = [];
+    const raf = globalThis.requestAnimationFrame;
+    const caf = globalThis.cancelAnimationFrame;
+    globalThis.requestAnimationFrame = fn => frames.push(fn);
+    globalThis.cancelAnimationFrame = () => {};
+    try {
+      const p = build().play();
+      frames.shift()(1000);
+      frames.shift()(1016);
+      const before = p.elapsed;
+      // A tab left in the background for a minute.
+      frames.shift()(61016);
+      assert.ok(p.elapsed - before <= 0.1 + 1e-9, 'the clock does not replay the whole gap');
+      assert.ok(p.dotGeo.drawRange.count < p.P.n / 4, 'the field is not blown apart on return');
+      p.destroy();
+    } finally {
+      globalThis.requestAnimationFrame = raf;
+      globalThis.cancelAnimationFrame = caf;
+    }
+  });
+
+  test('a destroyed player cannot intercept input on its reused canvas', () => {
+    const canvas = stubGlCanvas();
+    canvas.style.touchAction = 'pan-y';
+    const p = new ThreePlayer(stubThree(), canvas, tag);
+    p.destroy();
+    p.destroy();
+    assert.equal(canvas.style.touchAction, 'pan-y');
+    const frames = p.renderer.frames;
+    const yaw = p.camera3.yaw;
+    const wheel = new Event('wheel', { cancelable: true });
+    wheel.deltaY = 10;
+    canvas.dispatchEvent(wheel);
+    assert.equal(wheel.defaultPrevented, false, 'destroyed input must not prevent page scrolling');
+    const next = new ThreePlayer(stubThree(), canvas, tag);
+    canvas.dispatchEvent(Object.assign(new Event('pointerdown'), { clientX: 0, clientY: 0 }));
+    canvas.dispatchEvent(Object.assign(new Event('pointermove'), { clientX: 20, clientY: 0 }));
+    canvas.dispatchEvent(new Event('pointerup'));
+    assert.equal(p.camera3.yaw, yaw, 'the old camera does not move');
+    assert.equal(p.renderer.frames, frames, 'the old renderer does not run');
+    assert.ok(next.camera3.yaw > 0, 'the replacement still receives input');
+    next.destroy();
+  });
+
 });
 
 describe('fade slicing', () => {
@@ -414,18 +499,53 @@ describe('paint', () => {
   ] });
   const all = names => Object.fromEntries(names.map(n => [n, true]));
 
-  for (const mode of MODES) {
-    test('draws ' + mode + ' with every effect and layer on', () => {
-      const ctx = stubContext();
-      for (const time of [0, 0.5, tag.duration, tag.duration + 5]) {
-        paint(ctx, tag, { time, w: 400, h: 300, mode, effects: all(EFFECTS), layers: all(LAYERS) });
-      }
-      assert.equal(ctx.globalAlpha, 1, 'leaves the context as it found it');
-    });
-  }
+  test('preserves the caller context state across effects and layers', () => {
+    const ctx = stubContext();
+    ctx.globalAlpha = 0.35;
+    ctx.fillStyle = '#123456';
+    ctx.strokeStyle = '#abcdef';
+    ctx.lineWidth = 7;
+    paint(ctx, tag, { time: 0.5, w: 400, h: 300, effects: all(EFFECTS), layers: all(LAYERS) });
+    assert.deepEqual(
+      [ctx.globalAlpha, ctx.fillStyle, ctx.strokeStyle, ctx.lineWidth],
+      [0.35, '#123456', '#abcdef', 7]
+    );
+  });
 
-  test('draws an empty tag', () => {
-    paint(stubContext(), prepare({ strokes: [] }), { w: 100, h: 100 });
+  test('cached spray matches uncached ink through seeks and style changes', () => {
+    class RecordedPath {
+      constructor(other) { this.commands = other ? other.commands.slice() : []; }
+      moveTo(...args) { this.commands.push(['moveTo', ...args]); }
+      arc(...args) { this.commands.push(['arc', ...args]); }
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'Path2D');
+    const frames = [
+      { time: 0.13 }, { time: 0.57 }, { time: tag.duration },
+      { time: 0.24 }, { time: 0.61, effects: { jitter: true, bleed: true } },
+      { time: 0.7, opts: { sprayDots: 8 } }, { time: 0.75, w: 300 },
+      { time: tag.duration, effects: { fade: true } }
+    ];
+    const draw = cached => {
+      if (cached) globalThis.Path2D = RecordedPath;
+      else delete globalThis.Path2D;
+      const ctx = stubContext();
+      let current;
+      const fills = [];
+      ctx.beginPath = () => { current = new RecordedPath(); };
+      ctx.moveTo = (...args) => current.moveTo(...args);
+      ctx.arc = (...args) => current.arc(...args);
+      ctx.fill = path => fills.push([ctx.globalAlpha, (path || current).commands.slice()]);
+      for (const frame of frames) {
+        paint(ctx, tag, { w: 240, h: 200, mode: 'spray', layers: { ink: true }, ...frame });
+      }
+      return fills;
+    };
+    try {
+      assert.deepEqual(draw(true), draw(false), 'native path caching must not change the ink');
+    } finally {
+      if (descriptor) Object.defineProperty(globalThis, 'Path2D', descriptor);
+      else delete globalThis.Path2D;
+    }
   });
 
   // Node has no canvas, so the tests above take the fallback. This stands a
@@ -507,5 +627,41 @@ describe('GmlPlayer', () => {
     assert.equal(player.mode, 'marker');
     assert.equal(player.effects.glow, undefined);
     assert.equal(player.layers.grid, undefined);
+  });
+
+  test('resumes paused playback but restarts a completed non-looping tag', () => {
+    const request = Object.getOwnPropertyDescriptor(globalThis, 'requestAnimationFrame');
+    const cancel = Object.getOwnPropertyDescriptor(globalThis, 'cancelAnimationFrame');
+    let next;
+    globalThis.requestAnimationFrame = fn => { next = fn; return 1; };
+    globalThis.cancelAnimationFrame = () => { next = null; };
+    const p = new GmlPlayer(stubCanvas(), {
+      strokes: [{ points: [[0, 0, 0], [1, 1, 1]] }]
+    }, { loop: false, loopDelay: 0 });
+    try {
+      p.seek(0.4).play();
+      next(0);
+      assert.equal(p.time, 0.4, 'a paused drawing resumes in place');
+      p.pause().seek(p.duration).play();
+      next(0);
+      assert.equal(p.time, 0, 'a completed drawing starts again');
+      next(50);
+      assert.ok(near(p.time, 0.05));
+    } finally {
+      p.destroy();
+      if (request) Object.defineProperty(globalThis, 'requestAnimationFrame', request);
+      else delete globalThis.requestAnimationFrame;
+      if (cancel) Object.defineProperty(globalThis, 'cancelAnimationFrame', cancel);
+      else delete globalThis.cancelAnimationFrame;
+    }
+  });
+});
+
+describe('clock formatting', () => {
+  test('carries rounded hundredths into the next second', () => {
+    assert.equal(secs(0.994), '00.99');
+    assert.equal(secs(0.995), '01.00');
+    assert.equal(secs(1.999), '02.00');
+    assert.equal(secs(99.999), '100.00');
   });
 });

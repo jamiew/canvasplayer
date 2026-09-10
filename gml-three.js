@@ -77,7 +77,7 @@ export const DEFAULTS = {
 };
 
 /*
- * A <canvas> that plays a prepared tag in WebGL.
+ * A <canvas> that plays a parsed tag in WebGL.
  *
  * Give it the shape parse() returns, or nothing and load() one later. The
  * canvas sizes itself to its parent, so give that element the dimensions you
@@ -85,14 +85,14 @@ export const DEFAULTS = {
  */
 export class ThreePlayer {
   /*
-   * `THREE` is an argument rather than an import so this module depends on
-   * nothing. Bring your own copy, at whatever version you already have:
+   * `THREE` is an argument rather than an import. Only preparation is shared
+   * with the 2D renderer; bring the three.js copy you already use:
    *
    *   import * as THREE from 'three';
    *   const player = new ThreePlayer(THREE, canvas, tag);
    *
-   * Tested against r160, which is what the demo vendors. Only 13 symbols of
-   * it are used, all core.
+   * Tested against r160, which is what the demo vendors. Only core APIs
+   * are used.
    */
   constructor(THREE, canvas, tag, options) {
     this.THREE = THREE;
@@ -100,8 +100,10 @@ export class ThreePlayer {
     this.opts = { ...DEFAULTS, ...options };
     this.listeners = {};
     this.elapsed = 0;
-    this.last = 0;
+    this.last = null;
     this.playing = false;
+    this.destroyed = false;
+    this.canvasStyle = { width: canvas.style.width, height: canvas.style.height };
 
     // One look, no modes and no data layers, so the controls show only the
     // transport. gml-ui.js reads this rather than importing the 2D player's.
@@ -120,9 +122,15 @@ export class ThreePlayer {
     if (typeof ResizeObserver !== 'undefined') {
       this.observer = new ResizeObserver(this.onResize);
       this.observer.observe(canvas.parentNode || canvas);
-    } else if (typeof globalThis.addEventListener === 'function') {
+    }
+    if (typeof globalThis.addEventListener === 'function') {
       globalThis.addEventListener('resize', this.onResize);
     }
+    this.onDensityChange = () => {
+      this.watchDensity();
+      this.resize();
+    };
+    this.watchDensity();
 
     this.load(tag);
     this.resize();
@@ -133,13 +141,20 @@ export class ThreePlayer {
     return this;
   }
 
+  off(name, fn) {
+    if (this.listeners[name]) this.listeners[name] = this.listeners[name].filter(listener => listener !== fn);
+    return this;
+  }
+
   emit(name, payload) {
     (this.listeners[name] || []).forEach(fn => fn(payload));
   }
 
   get duration() { return this.tag.duration; }
+  get time() { return this.elapsed; }
 
   load(tag) {
+    if (this.destroyed) return this;
     this.clear();
     this.tag = prepare(tag, this.opts);
 
@@ -154,10 +169,12 @@ export class ThreePlayer {
     const half = this.size * (0.5 + this.opts.margin);
     this.stage = { x0: this.cx - half, y0: this.cy - half, side: half * 2 };
 
+    this.elapsed = 0;
+    this.last = null;
     this.buildStrokes();
     this.buildDust();
-    this.elapsed = 0;
     this.emit('load', this.tag);
+    this.render();
     return this;
   }
 
@@ -194,18 +211,18 @@ export class ThreePlayer {
    * uses the real thing, so a slow pass is fat and a fast one is thin for
    * the same reason it is on the 2D canvas.
    *
-   * Playback reveals the ribbon by moving the geometry's draw range, so
-   * nothing is rebuilt per frame.
+   * Playback moves the draw range and interpolates just its leading pair of
+   * vertices. Keep the original pairs so backwards seeks restore the ribbon.
    */
   buildStrokes() {
     const { opts } = this;
     this.tag.strokes.forEach(stroke => {
       const pts = stroke.points;
       const n = pts.length;
-      if (n < 2) return;
+      if (!n) return;
 
       const world = pts.map(p => this.world(p[0], p[1], p[2]));
-      const positions = new Float32Array(n * 2 * 3);
+      const positions = new Float32Array(n === 1 ? 12 : n * 6);
 
       for (let i = 0; i < n; i++) {
         const a = world[i > 0 ? i - 1 : i];
@@ -215,12 +232,13 @@ export class ThreePlayer {
         const len = Math.hypot(dx, dy) || 1;
         // Perpendicular in the drawing's own plane. The ribbon stays flat in
         // xy and gets its depth from where the samples sit in z.
-        const px = -dy / len;
+        const px = dx || dy ? -dy / len : 1;
         const py = dx / len;
 
         let taper = 1;
-        if (i < opts.taper) taper = Math.pow(i / (opts.taper - 1), 1.1);
-        if (i > n - 1 - opts.taper) taper = Math.pow((n - 1 - i) / (opts.taper - 1), 1.1);
+        if (opts.taper > 1) {
+          taper = Math.pow(Math.min(1, i / (opts.taper - 1), (n - 1 - i) / (opts.taper - 1)), 1.1);
+        }
         const hw = Math.max(stroke.width[i] * opts.strokeWidth * taper, 0.004) / 2;
 
         const [x, y, z] = world[i];
@@ -233,6 +251,14 @@ export class ThreePlayer {
       }
 
       const index = [];
+      if (n === 1) {
+        // A legal one-sample stroke is a dab, not an empty ribbon.
+        const [x, y, z] = world[0];
+        const hw = Math.max(stroke.width[0] * opts.strokeWidth, 0.004) / 2;
+        positions.set([x - hw, y - hw, z, x + hw, y - hw, z,
+          x - hw, y + hw, z, x + hw, y + hw, z]);
+        index.push(0, 1, 2, 1, 3, 2);
+      }
       for (let i = 0; i < n - 1; i++) {
         const l0 = i * 2;
         const r0 = l0 + 1;
@@ -250,7 +276,7 @@ export class ThreePlayer {
       const mesh = new this.THREE.Mesh(geo, mat);
       mesh.frustumCulled = false;
       this.scene.add(mesh);
-      this.meshes.push({ mesh, pts });
+      this.meshes.push({ mesh, pts, original: positions.slice(), edge: -1 });
     });
   }
 
@@ -326,7 +352,11 @@ export class ThreePlayer {
     P.wokeAt.fill(0);
     this.field.x.fill(0);
     this.field.y.fill(0);
-    this.injectLast = null;
+    this.injectLastStroke = -1;
+    this.headStroke = 0;
+    this.headPoint = 1;
+    this.simulationTime = this.elapsed;
+    this.simulationRemainder = 0;
     // Push the empty field to the GPU. Without this, load() and seek() reset
     // the particles and then draw whatever the buffers last held, over a
     // draw range nothing has narrowed: a fresh geometry defaults to drawing
@@ -335,11 +365,17 @@ export class ThreePlayer {
   }
 
   // The head's own motion, spread into the field over a few cells.
-  inject(x, y) {
-    if (!this.injectLast) { this.injectLast = [x, y]; return; }
-    const dx = x - this.injectLast[0];
-    const dy = y - this.injectLast[1];
-    this.injectLast = [x, y];
+  inject(x, y, stroke) {
+    if (stroke !== this.injectLastStroke) {
+      this.injectLastStroke = stroke;
+      this.injectLastX = x;
+      this.injectLastY = y;
+      return;
+    }
+    const dx = x - this.injectLastX;
+    const dy = y - this.injectLastY;
+    this.injectLastX = x;
+    this.injectLastY = y;
     if (Math.abs(dx) < 1e-6 && Math.abs(dy) < 1e-6) return;
 
     const { opts, field } = this;
@@ -361,17 +397,41 @@ export class ThreePlayer {
     }
   }
 
+  // Visit every crossed segment, not just the stroke under the display
+  // frame. A short stroke or its final sample must not disappear at 30 Hz.
+  injectBetween(from, to) {
+    const strokes = this.tag.strokes;
+    while (this.headStroke < strokes.length) {
+      const pts = strokes[this.headStroke].points;
+      if (pts[0][2] > to) break;
+      while (this.headPoint < pts.length) {
+        const a = pts[this.headPoint - 1];
+        const b = pts[this.headPoint];
+        if (a[2] > to) break;
+        if (b[2] >= from) {
+          const span = b[2] - a[2];
+          const start = span > 0 ? clamp((from - a[2]) / span, 0, 1) : 0;
+          const end = span > 0 ? clamp((to - a[2]) / span, 0, 1) : 1;
+          this.inject(a[0] + (b[0] - a[0]) * start, a[1] + (b[1] - a[1]) * start, this.headStroke);
+          this.inject(a[0] + (b[0] - a[0]) * end, a[1] + (b[1] - a[1]) * end, this.headStroke);
+        }
+        if (b[2] > to) break;
+        this.headPoint++;
+      }
+      if (this.headPoint < pts.length) break;
+      this.headStroke++;
+      this.headPoint = 1;
+    }
+  }
+
   stepDust(dt, head, falling) {
     const { P, field, opts } = this;
     const drag = Math.min(1, opts.friction * dt);
     const push = opts.reactivity * dt;
     const g = falling ? opts.gravity * dt : 0;
+    const decay = Math.pow(opts.fieldDecay, dt * 60);
 
     for (let k = 0; k < P.n; k++) {
-      if (!P.woke[k] && (P.posX[k] !== P.oriX[k] || P.posY[k] !== P.oriY[k])) {
-        P.woke[k] = 1;
-        P.wokeAt[k] = head;
-      }
       let ci = ((P.posX[k] - this.stage.x0) / this.cw) | 0;
       let cj = ((P.posY[k] - this.stage.y0) / this.ch) | 0;
       ci = ci < 0 ? 0 : ci >= this.cols ? this.cols - 1 : ci;
@@ -385,23 +445,31 @@ export class ThreePlayer {
       P.velY[k] -= P.velY[k] * drag;
       P.posX[k] += P.velX[k] * dt;
       P.posY[k] += P.velY[k] * dt;
+      if (!P.woke[k] && (P.posX[k] !== P.oriX[k] || P.posY[k] !== P.oriY[k])) {
+        P.woke[k] = 1;
+        P.wokeAt[k] = head;
+      }
     }
 
     for (let k = 0; k < field.x.length; k++) {
-      field.x[k] *= opts.fieldDecay;
-      field.y[k] *= opts.fieldDecay;
+      field.x[k] *= decay;
+      field.y[k] *= decay;
     }
   }
 
   // Only the particles that have woken go to the GPU, so an untouched grid
-  // costs nothing to draw.
+  // costs nothing to draw or to upload: the update ranges stop at the last
+  // one packed, rather than sending the whole buffer every step.
   uploadDust() {
     const { P } = this;
     let n = 0;
     for (let k = 0; k < P.n; k++) {
       if (!P.woke[k]) continue;
-      const [x, y, z] = this.world(P.posX[k], P.posY[k], P.wokeAt[k]);
-      const [ox, oy] = this.world(P.oriX[k], P.oriY[k], P.wokeAt[k]);
+      const x = (P.posX[k] - this.cx) * this.scale;
+      const y = -(P.posY[k] - this.cy) * this.scale;
+      const z = (P.wokeAt[k] / this.tag.duration - 0.5) * this.opts.depthSpan;
+      const ox = (P.oriX[k] - this.cx) * this.scale;
+      const oy = -(P.oriY[k] - this.cy) * this.scale;
       this.dotPos[n * 3] = x;
       this.dotPos[n * 3 + 1] = y;
       this.dotPos[n * 3 + 2] = z;
@@ -414,17 +482,30 @@ export class ThreePlayer {
       n++;
     }
     this.dotGeo.setDrawRange(0, n);
+    this.dotGeo.attributes.position.addUpdateRange(0, n * 3);
     this.dotGeo.attributes.position.needsUpdate = true;
     this.trailGeo.setDrawRange(0, n * 2);
+    this.trailGeo.attributes.position.addUpdateRange(0, n * 6);
     this.trailGeo.attributes.position.needsUpdate = true;
   }
 
+  watchDensity() {
+    if (this.densityQuery) this.densityQuery.removeEventListener('change', this.onDensityChange);
+    if (typeof globalThis.matchMedia === 'function') {
+      this.densityQuery = globalThis.matchMedia(`(resolution: ${globalThis.devicePixelRatio || 1}dppx)`);
+      this.densityQuery.addEventListener('change', this.onDensityChange);
+    }
+  }
+
   resize() {
+    if (this.destroyed) return this;
     const host = this.canvas.parentNode || this.canvas;
     const w = Math.max(host.clientWidth || this.canvas.clientWidth, 1);
     const h = Math.max(host.clientHeight || this.canvas.clientHeight, 1);
     this.renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, 2));
-    this.renderer.setSize(w, h, false);
+    // Pin CSS pixels too: an unstyled canvas otherwise takes its layout
+    // size from the DPR-scaled drawing buffer and grows on every resize.
+    this.renderer.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.render();
@@ -432,6 +513,7 @@ export class ThreePlayer {
   }
 
   render() {
+    if (this.destroyed) return this;
     const { opts } = this;
     const dur = this.tag.duration;
     const holdEnd = dur + opts.holdSec;
@@ -439,9 +521,42 @@ export class ThreePlayer {
 
     // Reveal each stroke up to the head.
     this.meshes.forEach(m => {
-      let v = 0;
-      while (v < m.pts.length && m.pts[v][2] <= head) v++;
-      m.mesh.geometry.setDrawRange(0, Math.max(0, v - 1) * 6);
+      const { pts, original, mesh } = m;
+      const position = mesh.geometry.attributes.position;
+      // Upper bound consumes equal-time samples together, without dividing
+      // by a zero-duration segment or leaving its endpoint unrevealed.
+      let lo = 0, hi = pts.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >>> 1;
+        if (pts[mid][2] <= head) lo = mid + 1;
+        else hi = mid;
+      }
+      if (pts.length === 1) {
+        mesh.geometry.setDrawRange(0, lo ? 6 : 0);
+        return;
+      }
+      // The pair the head is between is bent back to meet it. Put the last
+      // frame's pair back first, unless it is the same pair and about to be
+      // rewritten anyway.
+      const edge = lo > 0 && lo < pts.length ? lo : -1;
+      if (m.edge >= 0 && m.edge !== edge) {
+        const offset = m.edge * 6;
+        for (let k = 0; k < 6; k++) position.array[offset + k] = original[offset + k];
+        position.addUpdateRange(offset, 6);
+        position.needsUpdate = true;
+      }
+      if (edge >= 0) {
+        const fraction = (head - pts[edge - 1][2]) / (pts[edge][2] - pts[edge - 1][2]);
+        const offset = edge * 6;
+        for (let k = 0; k < 6; k++) {
+          const start = original[offset - 6 + k];
+          position.array[offset + k] = start + (original[offset + k] - start) * fraction;
+        }
+        position.addUpdateRange(offset, 6);
+        position.needsUpdate = true;
+      }
+      m.edge = edge;
+      mesh.geometry.setDrawRange(0, lo ? Math.min(lo, pts.length - 1) * 6 : 0);
     });
 
     const fade = this.elapsed > holdEnd
@@ -466,53 +581,52 @@ export class ThreePlayer {
   }
 
   step(dt) {
+    if (this.destroyed || !(dt > 0) || !Number.isFinite(dt)) return this;
     const { opts } = this;
     const dur = this.tag.duration;
     const holdEnd = dur + opts.holdSec;
     const loopEnd = holdEnd + opts.fadeSec;
 
-    // Loop before this frame is worked out, not after: resetting afterwards
-    // showed one frame of the finished tag at full opacity, which read as a
-    // blink at the top of every loop.
-    if (this.elapsed > loopEnd) {
-      this.elapsed = 0;
-      this.resetDust();
-    }
-
     this.elapsed += dt;
     if (!this.dragging) this.camera3.yaw += opts.autoRotate * dt;
-
-    const head = Math.min(this.elapsed, dur);
-    if (this.elapsed <= dur) {
-      // Whichever stroke is being written now. Later ones first, so an
-      // overlap resolves to the one on top.
-      const strokes = this.tag.strokes;
-      for (let si = strokes.length - 1; si >= 0; si--) {
-        const pts = strokes[si].points;
-        if (pts[0][2] <= head && head <= pts[pts.length - 1][2]) {
-          let i = 0;
-          while (i < pts.length - 1 && pts[i + 1][2] < head) i++;
-          this.inject(pts[i][0], pts[i][1]);
-          break;
-        }
-      }
+    // Loop before drawing, not after: resetting afterwards showed one frame
+    // of the finished tag at full opacity, a blink at the top of every loop.
+    if (this.elapsed >= loopEnd) {
+      this.elapsed %= loopEnd;
+      this.resetDust();
+      this.simulationTime = 0;
+      this.simulationRemainder = this.elapsed;
+    } else {
+      this.simulationRemainder += dt;
     }
 
-    this.stepDust(dt, head, this.elapsed > holdEnd);
-    this.uploadDust();
+    // Fixed tag-time steps make 30/60/120 Hz run the same field.
+    const fixed = 1 / 120;
+    const steps = Math.floor((this.simulationRemainder + 1e-10) / fixed);
+    for (let i = 0; i < steps; i++) {
+      const next = this.simulationTime + fixed;
+      this.injectBetween(this.simulationTime, next);
+      this.stepDust(fixed, Math.min(next, dur), next > holdEnd);
+      this.simulationTime = next;
+    }
+    this.simulationRemainder = Math.max(0, this.simulationRemainder - steps * fixed);
+    if (steps) this.uploadDust();
     return this;
   }
 
   play() {
-    if (this.playing) return this;
+    if (this.destroyed || this.playing) return this;
     this.playing = true;
-    this.last = 0;
+    this.last = null;
     const frame = ts => {
       if (!this.playing) return;
-      const dt = this.last ? Math.min((ts - this.last) / 1000, 0.05) : 1 / 60;
+      // Capped like the 2D player, so a tab left in the background resumes
+      // where it was. Fed the whole gap, the field took every stroke crossed
+      // in that time at once and blew the dust off the tag on return.
+      const dt = this.last === null ? 0 : clamp((ts - this.last) / 1000, 0, 0.1);
       this.last = ts;
       this.step(dt * this.opts.speed).render();
-      this.raf = requestAnimationFrame(frame);
+      if (this.playing) this.raf = requestAnimationFrame(frame);
     };
     this.raf = requestAnimationFrame(frame);
     this.emit('state', { playing: true });
@@ -530,14 +644,19 @@ export class ThreePlayer {
   toggle() { return this.playing ? this.pause() : this.play(); }
 
   setSpeed(rate) {
-    this.opts.speed = rate;
+    if (this.opts.speed !== rate) {
+      this.opts.speed = rate;
+      this.emit('config');
+    }
     return this;
   }
 
   // A field cannot be run backwards, so scrubbing rebuilds the dust from
   // where it lands rather than showing a history that did not happen.
   seek(t) {
+    if (this.destroyed) return this;
     this.elapsed = clamp(t, 0, this.tag.duration);
+    this.last = null;
     this.resetDust();
     return this.render();
   }
@@ -545,46 +664,78 @@ export class ThreePlayer {
   // Drag to turn, wheel to move in and out.
   input() {
     const c = this.canvas;
+    const touchAction = c.style.touchAction;
     c.style.touchAction = 'none';
-    let last = null;
+    let pointer = null;
+    let lastX = 0, lastY = 0;
 
     const down = e => {
+      if (pointer !== null) return;
+      pointer = e.pointerId;
       this.dragging = true;
-      last = [e.clientX, e.clientY];
+      lastX = e.clientX;
+      lastY = e.clientY;
       if (c.setPointerCapture) {
-        try { c.setPointerCapture(e.pointerId); } catch (err) { /* not captureable */ }
+        try { c.setPointerCapture(pointer); } catch (err) { /* not captureable */ }
       }
     };
     const move = e => {
-      if (!this.dragging || !last) return;
-      const dx = e.clientX - last[0];
-      const dy = e.clientY - last[1];
-      last = [e.clientX, e.clientY];
+      if (!this.dragging || e.pointerId !== pointer) return;
+      const dx = e.clientX - lastX;
+      const dy = e.clientY - lastY;
+      lastX = e.clientX;
+      lastY = e.clientY;
       this.camera3.yaw += dx * this.opts.orbitSpeed;
       // Short of straight overhead, where the tag goes edge-on and the
       // camera tips over the top.
       this.camera3.pitch = clamp(this.camera3.pitch + dy * this.opts.orbitSpeed, -1.3, 1.3);
       if (!this.playing) this.render();
     };
-    const up = () => { this.dragging = false; last = null; };
-
-    c.addEventListener('pointerdown', down);
-    c.addEventListener('pointermove', move);
-    c.addEventListener('pointerup', up);
-    c.addEventListener('pointercancel', up);
-    c.addEventListener('wheel', e => {
+    const up = e => {
+      if (e && e.pointerId !== pointer) return;
+      const released = pointer;
+      pointer = null;
+      this.dragging = false;
+      if (released !== null && c.releasePointerCapture) {
+        try { c.releasePointerCapture(released); } catch (err) { /* already released */ }
+      }
+    };
+    const wheel = e => {
       e.preventDefault();
       const o = this.opts;
       this.camera3.dist = clamp(this.camera3.dist * (1 + e.deltaY * o.zoomSpeed), o.minDist, o.maxDist);
       if (!this.playing) this.render();
-    }, { passive: false });
+    };
+    c.addEventListener('pointerdown', down);
+    c.addEventListener('pointermove', move);
+    c.addEventListener('pointerup', up);
+    c.addEventListener('pointercancel', up);
+    c.addEventListener('lostpointercapture', up);
+    c.addEventListener('wheel', wheel, { passive: false });
+    this.disposeInput = () => {
+      c.removeEventListener('pointerdown', down);
+      c.removeEventListener('pointermove', move);
+      c.removeEventListener('pointerup', up);
+      c.removeEventListener('pointercancel', up);
+      c.removeEventListener('lostpointercapture', up);
+      c.removeEventListener('wheel', wheel);
+      up();
+      c.style.touchAction = touchAction;
+    };
   }
 
   destroy() {
+    if (this.destroyed) return;
+    this.destroyed = true;
     this.pause();
+    this.listeners = {};
+    this.disposeInput();
+    if (this.observer) this.observer.disconnect();
+    if (typeof globalThis.removeEventListener === 'function') globalThis.removeEventListener('resize', this.onResize);
+    if (this.densityQuery) this.densityQuery.removeEventListener('change', this.onDensityChange);
     this.clear();
     this.renderer.dispose();
-    if (this.observer) this.observer.disconnect();
-    else if (typeof globalThis.removeEventListener === 'function') globalThis.removeEventListener('resize', this.onResize);
+    this.canvas.style.width = this.canvasStyle.width;
+    this.canvas.style.height = this.canvasStyle.height;
   }
 }

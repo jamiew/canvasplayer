@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>canvasplayer: player and controls</title>
+<link rel="stylesheet" href="../gml-ui.css">
+<style>
+  body { max-width: 560px; margin: 0 auto; padding: 16px; font: 14px/1.5 system-ui, sans-serif; }
+  h1 { margin: 0 0 12px; font-size: 20px; }
+  .stage { height: min(50vh, 360px); background: #000; }
+  .stage canvas { display: block; }
+  #transport, #switches { margin-top: 12px; }
+</style>
+<h1>Player and optional controls</h1>
+<div id="mount">
+  <div class="stage"><canvas aria-label="Animated graffiti drawing from tag 100" role="img"></canvas></div>
+  <div id="transport"></div>
+  <div id="switches"></div>
+</div>
+<p id="status" role="status">Loading tag</p>
+<button id="remove" type="button" disabled>Remove player</button>
+<p>Data: <a href="https://000000book.com/data/100">tag #100</a>, captured with eyeSaver-003.</p>
+<script type="module">
+  import { parse } from '../gml.js';
+  import { GmlPlayer } from '../gml-player.js';
+  import { transport, switches } from '../gml-ui.js';
+
+  const status = document.getElementById('status');
+  const remove = document.getElementById('remove');
+  try {
+    const response = await fetch('./tag.json');
+    if (!response.ok) throw new Error('Could not load tag: HTTP ' + response.status);
+    const json = await response.json();
+    // The player prepares the parsed tag and sizes the canvas to its stage.
+    const player = new GmlPlayer(document.querySelector('canvas'), parse(json.gml, json.id));
+
+    // These two calls and the stylesheet are optional. Remove them for canvas only.
+    const disposeTransport = transport(player, document.getElementById('transport'));
+    const disposeSwitches = switches(player, document.getElementById('switches'));
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) player.seek(player.duration);
+    else player.play();
+    status.textContent = 'Tag #' + json.id + '. Use the controls to play or scrub.';
+
+    // In a framework, do this in the component's unmount hook instead.
+    remove.disabled = false;
+    remove.addEventListener('click', () => {
+      disposeTransport();
+      disposeSwitches();
+      player.destroy();
+      document.getElementById('mount').remove();
+      remove.disabled = true;
+      status.textContent = 'Player removed. Its animation and listeners have been released.';
+    }, { once: true });
+  } catch (error) {
+    status.textContent = error.message;
+  }
+</script>
+<!-- Public domain, Jamie Wilkinson & Free Art & Technology (F.A.T.) Lab. No rights reserved. -->
+</html>
