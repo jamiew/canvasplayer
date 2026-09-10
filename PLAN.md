@@ -2,27 +2,64 @@
 
 ## Where we are
 
-Three renderers, one parser, one branch each. `gml.js` is shared and pure.
+One parser, two renderers, four modules. `gml.js` is shared and pure.
 
-| branch | renderer |
-|---|---|
-| `main` | flat 2D canvas: 8 ink modes, 4 effects, 6 data layers |
-| `native-3d` | 2D canvas with time as depth, particle dust, extrude, anaglyph |
-| `threejs-renderer` | WebGL, after Evan Roth's 3D fork |
-
-Pages publishes all three from one workflow: main at the root, the others in
-subfolders. No merging needed.
-
-- `gml.js` parses and prepares. Pure, no DOM.
-- `gml-player.js` paints and plays.
+- `gml.js` parses and prepares. Pure, no DOM, no canvas.
+- `gml-player.js` paints and plays on a 2D canvas: 8 ink modes, 4 effects,
+  6 data layers. This is what 000000book imports.
 - `gml-ui.js` and `gml-ui.css` build the controls.
-- `index.html` is the demo. It loads tags over JSONP and uses all 3 modules.
-- `test.js` runs under `node --test`. 42 tests pass.
+- `gml-three.js` is the optional WebGL dust renderer, after Evan Roth's 3D
+  fork. It imports nothing: you hand it your own `THREE`.
+- `index.html` is the demo. It loads tags over JSONP and switches renderer
+  with `?renderer=`.
+- `test.js` runs under `node --test`.
+
+## Merging the branches back, September 2026
+
+Three long-lived branches were three copies of the same shared code, and
+they drifted. The audit found the same bug in all three copies more than
+once. So: one branch, one package, renderers as modules.
+
+`native-3d` is retired, tagged `v6.1-native-3d`. It put time on the z axis
+in pure 2D canvas, so all 8 ink modes worked in depth for 711 lines and no
+dependency. The WebGL renderer looks and performs better, and the reasons to
+keep both were about putting depth on a 000000book browse page, which is not
+what 3D is for here. One look we like beats eight we do not.
+
+The steps, each one commit:
+
+1. Bring `gml-3d.js` over as `gml-three.js`. `THREE` becomes the first
+   constructor argument rather than a top-level import, so the module pulls
+   in nothing on its own and an npm consumer supplies their own copy.
+2. Fix its two live bugs: `uploadDust()` never runs on `load()` or `seek()`,
+   so the GPU draws stale buffers; and a browser with no WebGL hangs on
+   LOADING forever, because the constructor throws and nothing catches it.
+3. Load three lazily in the demo with `await import()`, so a visitor who
+   never picks WebGL pays none of its 167 KB. Keep it vendored at r160
+   rather than fetched from a CDN: repo bytes cost nothing at runtime, and a
+   CDN is a third-party request on every visit.
+4. Decouple `gml-ui.js` from `gml-player.js`. It imports 5 constant arrays
+   and drags the whole 2D painter into a WebGL page to get them. The
+   renderer should advertise what it supports instead.
+5. Fix the slice re-roll: `fade` cuts a stroke into slices and reruns the
+   brush per slice, so spray, sketch and dyna re-roll their noise and ink
+   already on screen changes shape. Seed off the absolute sample index.
+6. `role="status"` on the loading overlay, and an error style that drops the
+   caps and letter-spacing so a full sentence is readable.
+7. Package metadata for importers: `main`, `sideEffects`, export
+   `package.json`, three as an optional peer, vendor out of `files`.
+8. One `index.html` with a renderer switch, replacing three near-identical
+   copies. Redirect stubs keep the old sub-URLs alive.
+9. One README with an API section written for someone importing rather than
+   reading the demo. CLAUDE.md promises 3 modules; make it 3 plus 1
+   optional. Fix the counts.
+10. Pages workflow back to a single branch.
 
 ## Decisions to confirm
 
 - Version is 6.1.0. Modes were only added to, so the API grew without
-  breaking.
+  breaking. The merge adds `gml-three.js` and removes nothing published, so
+  it is 6.2.0.
 - The license field says Unlicense. The code says public domain, no rights
   reserved. Change it if you want CC0 instead.
 - The name `canvasplayer` is free on npm.
