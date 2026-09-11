@@ -57,44 +57,42 @@
   <h1>canvasplayer</h1>
   <p class="tagline">
     <a href="https://fffff.at/gml-week-graffiti-markup-language/">Graffiti Markup Language</a>
-    visualization demo. <a href="https://github.com/jamiew/canvasplayer">View code on GitHub</a>
+    playback. <a href="https://github.com/jamiew/canvasplayer">Source on GitHub</a>
   </p>
   <p class="renderers"><a href="../?renderer=canvas">2D Canvas</a><a href="../?renderer=webgl">three.js/WebGL</a><a href="./iframe.html" aria-current="page">iframe embed</a></p>
 </header>
 <main>
   <div class="intro">
     <h2>Embed with an iframe</h2>
-    <p>Three ways to show the same <a href="https://000000book.com/data/100">tag #100</a>.
-      Each frame owns its drawing and, when needed, its controls. This host loads only shared demo theming and
-      a same-origin frame sizing script, not the player modules or controls stylesheet.</p>
+    <p>Three ways to show <a href="https://000000book.com/data/100">tag #100</a>.
+      Each frame loads only the modules it needs.</p>
   </div>
 
   <section class="example" aria-labelledby="player-heading">
     <div class="example-grid">
-      <iframe class="player-frame" src="./player.html" title="Full graffiti player with controls for tag 100" loading="lazy"></iframe>
+      <iframe class="player-frame" src="./player.html" title="Graffiti player with controls for tag 100" loading="lazy"></iframe>
       <div class="example-copy">
-        <h2 id="player-heading">Full player with controls</h2>
-        <p>Play, pause, scrub and change the ink. This example includes the optional controls and a remove button that releases the player.</p>
-        <p><a href="./player.html">Open the player on its own</a></p>
+        <h2 id="player-heading">Player with controls</h2>
+        <p>Play, pause, scrub and change the ink. Use Remove player to stop playback and release its resources.</p>
+        <p><a href="./player.html">Open player</a></p>
         <pre><code>&lt;iframe class="player-frame" src="./player.html"
   title="Graffiti player"
   loading="lazy"
   style="width:100%;height:800px;border:0"&gt;
 &lt;/iframe&gt;</code></pre>
-        <p>This minimal embed uses a fixed height and scrolls if its content needs more room.
-          The gallery instead fits the frame to its content, including after you remove the player.</p>
+        <p>This fixed-height embed scrolls when needed. The gallery resizes it to fit its content.</p>
       </div>
     </div>
   </section>
 
   <section class="example" aria-labelledby="playback-heading">
     <div class="example-grid">
-      <iframe class="playback-frame" src="./playback.html" title="Animation-only graffiti drawing for tag 100" loading="lazy"></iframe>
+      <iframe class="playback-frame" src="./playback.html" title="Graffiti animation for tag 100" loading="lazy"></iframe>
       <div class="example-copy">
         <h2 id="playback-heading">Animation only</h2>
-        <p>The drawing fills its frame and loops without controls. No UI module or stylesheet is loaded.
-          With reduced motion enabled, it shows the finished tag instead.</p>
-        <p><a href="./playback.html">Open the animation on its own</a></p>
+        <p>The drawing fills its frame and loops without controls.
+          With reduced motion enabled, it shows the finished tag.</p>
+        <p><a href="./playback.html">Open animation</a></p>
         <pre><code>&lt;iframe src="./playback.html"
   title="Animated graffiti drawing"
   loading="lazy"
@@ -106,44 +104,44 @@
 
   <section class="example" aria-labelledby="drawing-heading">
     <div class="example-grid">
-      <iframe class="drawing-frame" src="./draw.html" title="Static finished graffiti drawing for tag 100" loading="lazy"></iframe>
+      <iframe class="drawing-frame" src="./draw.html" title="Finished graffiti drawing for tag 100" loading="lazy"></iframe>
       <div class="example-copy">
         <h2 id="drawing-heading">Finished drawing</h2>
-        <p>One frame, painted once. This example uses <code>parse</code>, <code>prepare</code> and <code>paint</code>:
-          no player, animation loop or controls.</p>
-        <p><a href="./draw.html">Open the drawing on its own</a></p>
+        <p>Draw once with <code>parse</code>, <code>prepare</code> and <code>paint</code>.
+          No player or animation loop.</p>
+        <p><a href="./draw.html">Open drawing</a></p>
         <pre><code>&lt;iframe class="drawing-frame" src="./draw.html"
   title="Finished graffiti drawing"
   loading="lazy"
   style="width:100%;height:800px;border:0"&gt;
 &lt;/iframe&gt;</code></pre>
-        <p>The gallery fits this frame to the drawing and its wrapped text. The fixed height above is a standalone starting point.</p>
+        <p>The gallery resizes this frame to fit the drawing and text.</p>
       </div>
     </div>
   </section>
 
   <section class="guidance" aria-labelledby="hosting-heading">
-    <h2 id="hosting-heading">Put a frame on another site</h2>
-    <p>Each example uses bundled JSON. Its JSON and module URLs resolve relative to the framed page, not the host page.</p>
+    <h2 id="hosting-heading">Embed on another site</h2>
+    <p>JSON and module URLs resolve relative to the framed page, not the host.</p>
     <ul>
-      <li>Replace <code>src</code> with the absolute HTTPS URL of your hosted example. Serve the modules and
-        <code>tag.json</code> alongside it over HTTP or HTTPS, not <code>file://</code>.</li>
-      <li>Set the frame size on the host page. The minimal examples above use a fixed height for text and controls;
-        check your chosen height at narrow widths and keep scrolling available. Animation-only frames stay square.</li>
-      <li>This gallery uses <code>ResizeObserver</code> on each same-origin player and drawing page's body.
-        Their content determines the frame height, so wrapped controls fit and removing the player shrinks its frame.
-        Place the sizing script below after the matching iframes on the same origin; it cannot measure cross-origin content.</li>
-      <li>The gallery, player and drawing share the demo theme through same-origin storage.
-        They follow the system until you choose a theme. The animation-only frame stays black and loads no UI or theme files.</li>
+      <li>Use your example's absolute HTTPS URL as <code>src</code>.
+        Serve its modules and bundled <code>tag.json</code> over HTTP or HTTPS, not <code>file://</code>.</li>
+      <li>Set the frame size on the host page.
+        Check fixed heights at narrow widths and allow scrolling. Animation-only frames stay square.</li>
+      <li>The gallery uses <code>ResizeObserver</code> to fit frames to their content.
+        Place the sizing script below after the matching iframes.
+        It requires the same origin and cannot measure cross-origin content.</li>
+      <li>The gallery, player and drawing share theme settings through same-origin storage.
+        They follow the system until you choose a theme. The animation stays black.</li>
       <li>The host's <code>frame-src</code> policy must allow the player URL. The player's
         <code>frame-ancestors</code> and <code>X-Frame-Options</code> headers must allow the host.</li>
-      <li>If you add a sandbox, module loading and playback need <code>allow-scripts allow-same-origin</code>.
-        Use those permissions only for content you trust.</li>
-      <li>The host cannot control a cross-origin player through these examples. There is no <code>postMessage</code> API.</li>
+      <li>A sandbox needs <code>allow-scripts allow-same-origin</code> for modules and playback.
+        These permissions do not isolate untrusted same-origin code.</li>
+      <li>There is no cross-origin <code>postMessage</code> control API. Use the framed controls.</li>
     </ul>
-    <p>You can also embed the full demo with
-      <a href="../?renderer=canvas&amp;id=147&amp;fullscreen=1"><code>../?renderer=canvas&amp;id=147&amp;fullscreen=1</code></a>
-      as the source. That version loads its tag from 000000book rather than the bundled JSON.</p>
+    <p>To load tags from 000000book instead, embed the
+      <a href="../?renderer=canvas&amp;id=147&amp;fullscreen=1">full demo</a>
+      with <code>?renderer=canvas&amp;id=147&amp;fullscreen=1</code>.</p>
     <pre><code>&lt;script&gt;
 document.querySelectorAll('.player-frame, .drawing-frame').forEach(frame =&gt; {
   let observer;

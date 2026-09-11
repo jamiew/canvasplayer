@@ -1,7 +1,4 @@
-// Run with: node --test
-// Exercises the parser, the timing repair and the measurements headlessly,
-// and runs the painter against a stub context, so nothing here needs a
-// browser or the network.
+// Run with node --test. No browser or network required.
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parse, prepare, progress, isLandscape } from './gml.js';
@@ -73,12 +70,10 @@ describe('prepare', () => {
   });
 
   test('measures speed on both axes', () => {
-    // Pure vertical movement. The old sqrt(pow(dx,2), pow(dy,2)) bug discarded
-    // dy, so this stroke measured zero speed and drew at full width throughout.
+    // sqrt(pow(dx,2), pow(dy,2)) ignored dy, making vertical strokes full-width.
     const p = prepare({ strokes: [{ points: [[0.5, 0, 0], [0.5, 0.4, 0.1], [0.5, 0.8, 0.2]] }] });
     assert.ok(p.peakSpeed > 1, 'vertical stroke registers speed (got ' + p.peakSpeed + ')');
-    // Held at one speed the line should hold one width. It used to open with
-    // a blob, because the first sample had nothing to measure against.
+    // Reuse the first segment's speed so constant motion starts at constant width.
     const w = p.strokes[0].width;
     assert.ok(near(w[0], w[2], 1e-9), 'constant speed gives constant width');
   });
@@ -92,8 +87,7 @@ describe('prepare', () => {
   });
 
   test('pads a collapsed axis open', () => {
-    // A dead straight line collapses one axis, which would take the scale,
-    // and every width derived from it, to zero.
+    // A collapsed axis would reduce the scale and all stroke widths to zero.
     const p = prepare({ strokes: [{ points: [[0.5, 0.2, 0], [0.5, 0.8, 0.1]] }] });
     assert.ok(near(p.bounds.x1 - p.bounds.x0, 0.1));
   });
@@ -216,9 +210,8 @@ describe('parse', () => {
   });
 
   test('tag 161 stays upright despite being called katsu-4', () => {
-    // Graffiti Analysis 1.0 wrote the tag's name into <client><name>, not
-    // the app's. Matching that name against the Fat Tag Katsu iPhone app is
-    // what used to lay this tag on its side.
+    // Tag 161 stores its title in client.name. Treating "katsu-4" as the
+    // iPhone app name wrongly rotated it.
     const d = parse({ tag: {
       header: { client: { name: 'katsu-4' } },
       environment: { rotation: { x: '20', y: '6', z: '0' } },
@@ -257,12 +250,7 @@ describe('isLandscape', () => {
   });
 });
 
-/*
- * A stand-in for three.js, enough for gml-three.js to build its scene and
- * draw a frame. It is here at all because ThreePlayer takes THREE as an
- * argument rather than importing it, which is the only reason a WebGL
- * renderer can be tested with no browser and no GPU.
- */
+// Injected THREE lets these tests exercise WebGL scene construction without a GPU.
 function stubThree() {
   const vec = (x = 0, y = 0, z = 0) => ({ x, y, z, set(a, b, c) { this.x = a; this.y = b; this.z = c; return this; } });
   class BufferAttribute {
@@ -344,8 +332,7 @@ describe('ThreePlayer', () => {
 
   test('seeking back to the start clears the dust it had drawn', () => {
     const p = build();
-    // A few frames, not one: the first injection only records where the head
-    // is, so nothing moves until it has somewhere to move from.
+    // The first injection records the head; later movement stirs the field.
     for (let i = 0; i < 40; i++) p.step(1 / 60);
     assert.ok(p.dotGeo.drawRange.count > 0, 'the field woke while playing');
     p.seek(0);
@@ -480,10 +467,8 @@ describe('ThreePlayer', () => {
 });
 
 describe('fade slicing', () => {
-  // fade cuts a stroke into slices to shade them, and the slice boundaries
-  // move as the stroke grows. The brushes that read a sample index must read
-  // the absolute one, or ink already on screen redraws itself differently.
-  // 168 samples slice by 6, 169 by 7, so these two frames straddle a shift.
+  // Fade slice boundaries move as the stroke grows. Absolute sample indices
+  // keep old ink fixed. This crosses a slice-size change from 6 to 7 samples.
   const tag = prepare({ strokes: [{ points: Array.from({ length: 210 },
     (_, i) => [0.2 + 0.6 * (i / 209), 0.5 + 0.18 * Math.sin(i / 9), i * 0.02]) }] });
 
@@ -491,8 +476,7 @@ describe('fade slicing', () => {
     const drawn = [];
     const ctx = new Proxy({ globalAlpha: 1, getTransform: () => ({ a: 1, d: 1 }) }, {
       get: (t, k) => (k in t ? t[k] : (...a) => {
-        // Compare the visible edges, irrespective of which slice starts a
-        // path. Caps at moving slice boundaries are not permanent edges.
+        // Compare fixed edges, not caps at moving slice boundaries.
         if (k === 'moveTo' || k === 'lineTo') {
           drawn.push(a.map(v => v.toFixed(3)).join(','));
         }
@@ -587,8 +571,7 @@ describe('paint', () => {
     );
   });
 
-  // Node has no canvas, so the tests above take the fallback. This stands a
-  // layer in to check the ghost goes down once, at one alpha.
+  // Supply a canvas layer to check that ghost opacity is applied once.
   test('lays the ghost down once, not as translucent fills that stack', () => {
     const layers = [];
     const onLayer = [];
@@ -615,8 +598,7 @@ describe('paint', () => {
     }
   });
 
-  // The ghost is the whole tag at full length, so playing does not change
-  // it. Redrawing it every frame cost more than the ink that was moving.
+  // Playback does not change the full-tag ghost; redrawing it wasted frame time.
   test('draws the ghost once, then keeps it until the picture changes', () => {
     const onLayer = [];
     globalThis.OffscreenCanvas = class {

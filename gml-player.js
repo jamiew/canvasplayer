@@ -1,15 +1,9 @@
 /*
- * gml-player.js -- Graffiti Markup Language playback on a 2D canvas.
+ * gml-player.js: Graffiti Markup Language playback on a 2D canvas.
  *
- * paint() draws one frame of a prepared tag on any 2D context: a <canvas>,
- * an OffscreenCanvas, or a canvas in Node. GmlPlayer wraps it around a
- * <canvas> element with a clock, resize handling and a small event API.
+ * paint() draws a prepared tag on a canvas, OffscreenCanvas or Node 2D context.
+ * GmlPlayer adds a clock, resizing and events to a <canvas>.
  * No dependencies.
- *
- * Replaces the 2009 Processing.js sketch, which advanced one point per frame,
- * measured speed on the x axis alone, rotated by 80 radians, and cropped
- * anything taller than its fixed 800x580 canvas. All four are in the sketch
- * it replaced, at bd51860^:index.html.
  *
  * Public domain, Jamie Wilkinson & Free Art & Technology (F.A.T.) Lab.
  * No rights reserved.
@@ -20,52 +14,45 @@ import { DEFAULTS as PREPARE, prepare, progress, noise, clamp, lerp } from './gm
 // Diagnostic overlays, each independently switchable.
 export const LAYERS = ['ink', 'drips', 'vectors', 'points', 'bounds', 'graph'];
 
-// How the ink itself is drawn. One at a time.
+// Ink modes. Select one at a time.
 export const MODES = ['marker', 'chisel', 'outline', 'dyna', 'hairline', 'skeleton'];
 
-// Combinable treatments applied on top of whichever mode is active.
+// Effects combine with any ink mode.
 export const EFFECTS = ['ghost', 'smooth', 'bleed', 'jitter', 'fade'];
 
-/*
- * A line on each, for the controls to show. Kept here rather than in the
- * controls because this is where the thing itself is defined, and a name
- * without an explanation is just jargon on a button.
- */
+// Control help stays with the renderer that defines each option.
 export const ABOUT = {
-  marker: 'A ribbon through the samples, wide where the hand was slow.',
-  chisel: 'A flat nib at a fixed angle: width comes from direction, not speed.',
-  outline: 'The silhouette only, the way a writer blocks a piece out.',
+  marker: 'A ribbon through the samples, wider where the hand slowed.',
+  chisel: 'A fixed-angle flat nib. Direction sets width, not speed.',
+  outline: 'The silhouette, as a writer blocks out a piece.',
   dyna: "A brush with mass towed on a spring. Haeberli's DynaDraw, 1989.",
-  hairline: 'The centerline alone, at one thickness.',
-  skeleton: 'The centerline with a tick at each sample, drawn as a diagram.',
+  hairline: 'The centerline at a fixed thickness.',
+  skeleton: 'A centerline diagram with sample ticks.',
 
-  ghost: 'The whole tag faint underneath, showing where it is going.',
-  smooth: 'Curve marker and outline through the samples instead of joining them with straight lines.',
-  bleed: 'Ink soaking outwards, so the edge falls off instead of stopping.',
-  jitter: 'Every sample nudged by noise, the same way on every repaint.',
-  fade: 'Old ink dims, leaving a comet tail behind the drawing head.',
+  ghost: 'A faint preview of the whole tag underneath.',
+  smooth: 'Curve marker and outline through samples instead of joining them with straight lines.',
+  bleed: 'Ink spreads outward to soften the edge.',
+  jitter: 'Noise nudges samples the same way on every repaint.',
+  fade: 'Old ink dims into a tail behind the drawing head.',
 
-  ink: 'The strokes themselves.',
-  drips: 'Runs of ink, falling from where the line was heaviest.',
+  ink: 'The strokes.',
+  drips: 'Ink runs from the heaviest parts of the line.',
   vectors: 'An arrow per sample for direction and speed.',
-  points: 'Every captured sample, with each stroke numbered.',
-  bounds: 'The capture screen, the grid and what the tag occupies.',
-  graph: 'Speed across the whole tag, with a playhead.'
+  points: 'Captured samples with numbered strokes.',
+  bounds: 'The capture screen, grid and tag bounds.',
+  graph: 'Speed across the tag, with a playhead.'
 };
 
 export const DEFAULTS = {
   ...PREPARE,
 
-  // How far a run narrows from where it leaves the pool to the head, and how
-  // much more it thins as it stretches. A run that tapers to nothing leaves
-  // its head looking like a pin, so the neck keeps some width.
+  // Narrowing from pool to head, then as the run stretches.
+  // Keep some neck width so the head does not look like a pin.
   dripTaper: 0.55,
   dripStretch: 0.3,
-  // The head is a little fatter than the neck it hangs from, not a bead
-  // dropped at the tip.
+  // A head wider than its neck, not a separate bead.
   dripHead: 1.45,
-  // How far a run may wander sideways, as a fraction of how far it has
-  // fallen. Gravity is down, so this can lean a run but never steer it.
+  // Sideways drift as a fraction of the fall. Runs must still fall downward.
   dripDrift: 0.12,
 
   hairline: 1.5,
@@ -81,10 +68,9 @@ export const DEFAULTS = {
   smoothSteps: 4,
 
   /*
-   * A brush with mass, dragged along the captured path on a spring: what
-   * gets drawn is where the brush went, not where the hand did. It lags
-   * into a corner and coasts out of one, which is where the calligraphy
-   * comes from. Paul Haeberli's DynaDraw, 1989.
+   * A spring pulls a brush with mass along the captured path.
+   * Draw the brush's path, not the hand's. It lags and coasts through corners.
+   * Based on Paul Haeberli's DynaDraw, 1989.
    */
   dynaMass: 1,
   dynaSpring: 0.42,
@@ -105,8 +91,7 @@ export const DEFAULTS = {
 
 const TAU = Math.PI * 2;
 
-// Ink soaking outwards, as widening passes under the stroke, so the edge
-// falls off instead of stopping dead. [width multiplier, alpha].
+// Widening passes under the stroke soften its edge. [width multiplier, alpha].
 const BLEED = [[3.2, 0.13], [2.2, 0.18], [1.5, 0.26]];
 
 const DRIP_STEPS = 7;
@@ -114,9 +99,8 @@ const DRIP_STEPS = 7;
 const MONO = 'ui-monospace, SFMono-Regular, Menlo, monospace';
 
 /*
- * How far jitter moves a sample, and where it moves it to. A run hangs off
- * the sample it started from, so both have to read the same offset or the
- * run comes away from its stroke.
+ * Jitter offsets must match between a run and its source sample,
+ * or the run detaches from the stroke.
  */
 function jitterAmount(s) {
   return s.effects.jitter ? s.opts.jitter * s.view.unit * 0.012 : 0;
@@ -131,13 +115,11 @@ function jitterAt(amount, si, i) {
 }
 
 /*
- * Where the drawing lands in a w by h frame. Fits the tag's own bounds, not
- * the full 0..1 capture space, so a tag that used one corner still fills the
- * frame.
+ * Fit the tag's bounds to a w by h frame, not the full 0..1 capture space.
+ * This lets a tag drawn in one corner fill the frame.
  *
- * One scale for both axes. The capture apps normalized x and y against the
- * same edge, so a unit across already matches a unit down. Reapplying the
- * screen's 3:2 ratio on top squashed every landscape capture.
+ * Both axes share a normalization edge, so use one scale.
+ * Reapplying the screen's 3:2 ratio squashed landscape captures.
  */
 export function fit(bounds, w, h, pad = DEFAULTS.pad) {
   const bw = bounds.x1 - bounds.x0;
@@ -159,10 +141,9 @@ export function fit(bounds, w, h, pad = DEFAULTS.pad) {
 /* --- ink --------------------------------------------------------------- */
 
 /*
- * Screen-space [x, y, width] triples for a slice of a stroke; `to` is
- * exclusive. The leading edge is interpolated between samples, so the line
- * grows smoothly instead of a sample at a time. `spread` widens the whole
- * slice, for the bleed passes.
+ * Screen-space [x, y, width] triples for a stroke slice. `to` is exclusive.
+ * Interpolate the leading edge for smooth playback between samples.
+ * `spread` widens the slice for bleed passes.
  */
 function path(s, stroke, si, from, to, partial, spread) {
   const { view } = s;
@@ -231,8 +212,8 @@ function ribbonPoint(x, y, width, dx, dy) {
 /*
  * Tag 100 has only five corners per stroke. Smoothing its growing prefix
  * treated the moving tip as a new control point, bending ink already down.
- * Read the recorded neighbours instead, then reveal a fixed curve up to
- * the playhead. Normals also use those neighbours, not the moving endpoint.
+ * Read the recorded neighbors instead, then reveal a fixed curve up to
+ * the playhead. Normals also use those neighbors, not the moving endpoint.
  * The same rule keeps straight ribbon joins still while the next side grows.
  */
 function ribbonPath(s, stroke, si, from, to, partial, spread) {
@@ -290,9 +271,8 @@ function normal(path, i) {
 }
 
 /*
- * Fill a stroke as a ribbon: walk the centerline offset by half the width
- * along the normal, then back down the other side. That taper is not
- * possible with a per-segment lineWidth.
+ * Trace both sides of the centerline, offset by half the width.
+ * Per-segment lineWidth cannot produce this taper.
  */
 function ribbon(ctx, path, outline) {
   if (!path.length) return;
@@ -318,18 +298,15 @@ function ribbon(ctx, path, outline) {
   for (let i = right.length - 1; i >= 0; i--) ctx.lineTo(right[i][0], right[i][1]);
   ctx.closePath();
 
-  // Outline mode draws only the silhouette, which is the shape a writer
-  // lays down first and fills afterwards. It wants no cap discs: they would
-  // ring every stroke end with a circle instead of closing it.
+  // Outline needs no cap discs: they would ring each stroke end with a circle.
   if (outline) {
     ctx.stroke();
     return;
   }
   ctx.fill();
 
-  // Caps as discs, not arcs spliced into the outline. An arc picks its
-  // sweep from the sign of the angle difference, and at a stroke's end that
-  // is as likely to go the long way round, notching every stroke.
+  // Use discs for caps. Spliced arcs can sweep the long way around at a
+  // stroke's end, leaving notches.
   [path[0], path[path.length - 1]].forEach(end => {
     ctx.beginPath();
     ctx.arc(end[0], end[1], end[2] / 2, 0, TAU);
@@ -354,9 +331,8 @@ function polyline(ctx, path, width) {
 }
 
 /*
- * A flat nib held at one angle. The ribbon is the area the nib sweeps, so
- * the line is fat across the nib and hairline along it. That is where a
- * marker handstyle gets its shape from, and it ignores speed entirely.
+ * Sweep a fixed-angle flat nib. Lines are wide across it and thin along it.
+ * Speed does not affect width.
  */
 function chisel(s, path, spread) {
   const { ctx, opts, view } = s;
@@ -376,14 +352,10 @@ function chisel(s, path, spread) {
   }
 
   /*
-   * Every segment's quad in one path, all wound the same way, filled once.
-   *
-   * Filling each quad on its own left a hairline seam down every shared
-   * edge, where two antialiased edges do not add up to full coverage. One
-   * fill takes the union instead -- but only if the windings agree. Tracing
-   * the sweep as a single out-and-back outline wound the two directions
-   * opposite ways, so under the nonzero rule a stroke that crossed itself
-   * cancelled and punched holes through its own ink.
+   * Fill all segment quads once with matching winding.
+   * Separate fills leave seams where antialiased edges meet.
+   * An out-and-back outline reverses winding at self-crossings,
+   * canceling ink under the nonzero rule and leaving holes.
    */
   ctx.beginPath();
   for (let i = 1; i < path.length; i++) {
@@ -406,13 +378,9 @@ function chisel(s, path, spread) {
 }
 
 /*
- * Haeberli's filtered pen: a brush with mass on a spring, towed along the
- * captured path. What gets drawn is the brush's path, not the hand's.
- *
- * Hooke's law toward each sample, integrated with drag, exactly as DynaDraw
- * did it in 1989. The brush cuts the inside of a corner and coasts past the
- * end of a fast stroke, and the width comes off the brush's own speed rather
- * than the hand's, so the line swells and thins on its own account.
+ * DynaDraw's spring and drag pull a brush with mass toward each sample.
+ * The brush cuts corners and coasts past fast stroke ends.
+ * Its own speed determines width, not the hand's.
  *
  * Filter the recorded trajectory once, then reveal it. Feeding the moving
  * tip back through smoothing and the spring would move ink already down.
@@ -529,7 +497,7 @@ function drawInk(s, t, prog, fade) {
     ctx.fillStyle = opts.color;
     ctx.strokeStyle = opts.color;
 
-    // Ink soaking outwards, under the stroke itself.
+    // Bleed passes sit under the stroke.
     if (s.effects.bleed) {
       BLEED.forEach(([spread, alpha]) => {
         ctx.globalAlpha = base * alpha;
@@ -558,17 +526,11 @@ function drawInk(s, t, prog, fade) {
 }
 
 /*
- * Runs of ink, each drawn as one shape.
+ * Draw each ink run as one shape. Its neck narrows as it stretches.
+ * Keep the neck open and join it to a wider, rounded head.
+ * A point with a disc at its tip made runs look like pins.
  *
- * A run leaves the pool at the stroke's own width and narrows on the way
- * down, but never to nothing: the same ink is spread over more length as it
- * stretches, so the neck thins with the fall rather than pinching shut. The
- * head is a rounded end a little fatter than the neck it hangs from. Tapering
- * to a point and dropping a disc there is what made these read as pins.
- *
- * Runs are ink, so every effect that acts on ink reaches them too: fade ages
- * them, jitter moves them with the stroke they hang off, bleed soaks them
- * outwards.
+ * Apply fade, jitter and bleed to runs as well as strokes.
  */
 function drawDrips(s, t) {
   const { ctx, opts, view, effects } = s;
@@ -591,8 +553,7 @@ function drawDrips(s, t) {
     const x = view.x(d.x) + jx;
     const y0 = view.y(d.y) + jy;
     const y1 = view.y(d.y + len) + jy;
-    // A fraction of the fall, not a fixed offset. Sized against the frame it
-    // out-ran a short run and sent it sideways, which is not how gravity works.
+    // Scale drift to the fall. Frame-sized drift sent short runs sideways.
     const drift = d.drift * opts.dripDrift * (y1 - y0);
     // Stretching the same ink further leaves less of it across the neck.
     const half = (d.width * view.unit / 2) * (1 - opts.dripStretch * p);
@@ -731,7 +692,7 @@ function drawVectors(s, prog) {
       ctx.beginPath();
       ctx.moveTo(x, y);
       ctx.lineTo(tx, ty);
-      // A head on each, so an arrow says which way the hand was going.
+      // Arrowheads show the hand's direction.
       ctx.lineTo(tx - Math.cos(a - 0.42) * head, ty - Math.sin(a - 0.42) * head);
       ctx.moveTo(tx, ty);
       ctx.lineTo(tx - Math.cos(a + 0.42) * head, ty - Math.sin(a + 0.42) * head);
@@ -787,25 +748,18 @@ function drawSpeedGraph(s, t) {
 /* --- ghost ------------------------------------------------------------- */
 
 /*
- * A layer the size of the frame for the ghost to be drawn solid on, so
- * paint() can lay it down once at ghostAlpha. Drawn straight onto the frame
- * it was hundreds of translucent fills, and wherever two overlapped the
- * alpha stacked. A marker stroke is a body and two cap discs, so every
- * stroke ended in a dot twice as bright as its ghost, and so did every
- * crossing.
+ * Draw the ghost solid on a separate layer, then apply ghostAlpha once.
+ * Direct translucent fills stacked alpha at crossings and cap discs,
+ * making those spots twice as bright.
  *
- * One layer per context, kept between frames and sized to the frame's own
- * scale so it stays sharp on a dense screen. Null where nothing can make a
- * canvas, which is Node without one; paint() then draws the ghost the old
- * way.
+ * Cache one layer per context at the frame's pixel density.
+ * Without a canvas factory, such as in Node, paint() draws the ghost directly.
  */
 const ghosts = new WeakMap();
 
 /*
- * Everything the ghost's picture depends on, other than the tag itself and
- * the size of the layer, which are checked separately. Redrawing it costs
- * more than the rest of the frame put together, so it is worth being exact
- * about when it has to happen.
+ * Cache inputs other than tag and layer size, which we check separately.
+ * Avoid unnecessary redraws: the ghost costs more than the rest of the frame.
  */
 function ghostKey(s) {
   const o = s.opts;
@@ -816,8 +770,7 @@ function ghostKey(s) {
   ].join('|');
 }
 
-// Returns the layer plus a context to draw on, or a null context when what
-// is already on the layer is still the right picture.
+// Return the layer and drawing context, or a null context if the cache is valid.
 function ghostLayer(ctx, w, h, key, tag) {
   let make;
   if (typeof OffscreenCanvas !== 'undefined') make = () => new OffscreenCanvas(1, 1);
@@ -860,7 +813,7 @@ function ghostLayer(ctx, w, h, key, tag) {
  *   time     seconds into the tag
  *   w, h     frame size
  *   mode     one of MODES
- *   effects  { ghost, bleed, jitter, fade }, each true or false
+ *   effects  { ghost, smooth, bleed, jitter, fade }, each true or false
  *   layers   { ink, drips, vectors, points, bounds, graph }, each true or false
  *   opts     any of DEFAULTS. Pass the same options prepare() was given.
  */
@@ -889,17 +842,13 @@ export function paint(ctx, tag, frame) {
 
   const prog = progress(tag.strokes, t);
 
-  // Where the tag is going, faint under where it has got to. Drawn at the
-  // end of the timeline, so fade would age all but the last second of it
-  // away and leave the preview in pieces. It is a preview, not ink: it does
-  // not age.
+  // The ghost previews the whole tag at its end time. Do not apply fade:
+  // it would erase all but the last second and leave the preview in pieces.
   if (layers.ink && effects.ghost) {
     const whole = () => tag.strokes.map(st => ({ count: st.points.length, partial: 0 }));
     const layer = ghostLayer(ctx, frame.w, frame.h, ghostKey(s), tag);
     if (layer) {
-      // The same picture on every frame of a playthrough, so it is drawn
-      // once and kept. It used to be redrawn 60 times a second, which cost
-      // more than the ink that was actually changing.
+      // Reuse the unchanged preview instead of redrawing it every frame.
       if (layer.ctx) drawInk({ ...s, ctx: layer.ctx }, tag.duration, whole(), false);
       ctx.globalAlpha = opts.ghostAlpha;
       ctx.drawImage(layer.canvas, 0, 0, frame.w, frame.h);
@@ -922,12 +871,12 @@ export function paint(ctx, tag, frame) {
 /* --- player ------------------------------------------------------------ */
 
 /*
- * A <canvas> that plays a tag in real time from the recorded timestamps.
+ * Play a tag from its recorded timestamps.
  *
- * The canvas sizes itself to its parent, so give that element the
- * dimensions you want. `tag` is the shape parse() returns, and may be left
- * out and load()ed later. Events: 'load' with the prepared tag, 'frame' with
- * { time, duration }, 'state' with { playing }, 'config' without a payload.
+ * Size the canvas's parent to set its dimensions.
+ * Pass a parsed tag now or call load() later.
+ * Events: 'load' with the prepared tag, 'frame' with { time, duration },
+ * 'state' with { playing }, 'config' without a payload.
  */
 export class GmlPlayer {
   constructor(canvas, tag, options) {
@@ -937,8 +886,7 @@ export class GmlPlayer {
     this.layers = { ink: true, drips: true, vectors: false, points: false, bounds: false, graph: false };
     this.effects = { ghost: true, smooth: false, bleed: false, jitter: false, fade: false };
     this.mode = 'marker';
-    // What the controls may offer. Asked of the player rather than imported,
-    // so gml-ui.js can drive a renderer that has none of these.
+    // The UI reads capabilities here so it can also support other renderers.
     this.capabilities = { modes: MODES, effects: EFFECTS, layers: LAYERS, about: ABOUT };
     this.playing = false;
     this.time = 0;
@@ -1062,9 +1010,8 @@ export class GmlPlayer {
   }
 
   pause() {
-    // Only when something changes. Scrubbing pauses on every input event,
-    // and each one used to cancel a stale frame and announce a state the
-    // listeners were already showing.
+    // Scrubbing calls pause() on every input. Ignore repeats to avoid stale
+    // frame cancellations and duplicate state events.
     if (!this.playing) return this;
     this.playing = false;
     if (this.raf) globalThis.cancelAnimationFrame(this.raf);

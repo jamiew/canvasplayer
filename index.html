@@ -1,28 +1,17 @@
 <!DOCTYPE html>
 <!--
-  canvasplayer, 000000book edition
-  Graffiti Markup Language (GML) playback in the browser using <canvas>
-
-  by Jamie Wilkinson... <https://jamiedubs.com> <https://github.com/jamiew>
-
-  v1: initial implementation
-  v2: multiple strokes, looping, iPhone translation, better stage positioning
-  v3: time-accurate playback
-  v4: dropped Processing.js, fixed the maths. Drips, tapered strokes, drawing
-      modes, debug overlay
-  v5: one fixed frame, orientation read from the drawing, light and dark
-  v6: ES modules on npm. Parsing, painting and the player pulled apart, so
-      each can be used on its own
-  v6.1: spray, outline, sketch and DynaDraw ink modes
+  canvasplayer: Graffiti Markup Language playback on canvas.
+  Public domain, Jamie Wilkinson & Free Art & Technology (F.A.T.) Lab.
+  No rights reserved.
 -->
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>canvasplayer: GML playback on &lt;canvas&gt;</title>
-  <meta name="description" content="canvasplayer (2009): Graffiti Markup Language (GML) playback in the browser on HTML5 canvas.">
+  <meta name="description" content="Graffiti Markup Language playback on canvas.">
   <meta property="og:title" content="canvasplayer: GML playback on <canvas>">
-  <meta property="og:description" content="canvasplayer (2009): Graffiti Markup Language (GML) playback in the browser on HTML5 canvas.">
+  <meta property="og:description" content="Graffiti Markup Language playback on canvas.">
   <meta property="og:type" content="website">
   <meta name="twitter:card" content="summary">
   <script src="examples/demo-theme.js"></script>
@@ -34,9 +23,7 @@
 
   <style media="screen">
     :root {
-      /* One frame at one size for every tag, with the drawing fitted inside.
-         Not a viewport unit: sizing off the window changed the drawing, the
-         button rows and the page height as you resized. */
+      /* A fixed stage keeps tag changes from resizing the page and controls. */
       --stage: 560px;
     }
 
@@ -55,10 +42,8 @@
 
     /* --- fullscreen -------------------------------------------------------- */
 
-    /* The frame takes the window and everything else floats over it. Not the
-       browser's fullscreen API: this works inside an iframe, leaves the
-       address bar alone, and survives a reload through ?fullscreen. Escape
-       exits. */
+    /* Layout fullscreen works in iframes and preserves browser chrome.
+       ?fullscreen restores it on reload; Escape exits. */
     :root[data-fullscreen] body { max-width: none; padding: 0; height: 100vh; overflow: hidden; background: #000; }
     :root[data-fullscreen] .masthead,
     :root[data-fullscreen] #index,
@@ -90,19 +75,17 @@
     :root[data-fullscreen] .switches {
       top: 14px; left: 14px;
       width: min(320px, calc(100vw - 28px));
-      /* A short window is not a reason to run the panel off the bottom. */
+      /* Keep the panel inside short windows. */
       max-height: calc(100vh - 96px);
       overflow-y: auto;
     }
 
-    /* Narrow and short fullscreen views are for looking at the work. The
-       chips return with the shrink button instead of sitting over the tag. */
+    /* Hide settings on small screens so they do not cover the drawing. */
     @media (max-width: 700px), (max-height: 500px) {
       :root[data-fullscreen] .switches { display: none; }
     }
 
-    /* A short landscape frame has no spare height for an overlay. Let the
-       transport take its actual row height and fit the drawing above it. */
+    /* Reserve transport height below the drawing in short landscape views. */
     @media (max-height: 500px) {
       :root[data-fullscreen] .deck {
         display: flex; flex-direction: column; gap: 12px;
@@ -122,11 +105,8 @@
 
     /* --- layout ----------------------------------------------------------- */
 
-    /* Equal fluid rails, so the frame lands on the page's center line at
-       every width and the masthead sits over it. The switches fill the right
-       rail when there is room, and drop under the frame when there is not.
-       Fixed rails overflowed and pushed the tag list off the left edge around
-       900px. */
+    /* Fluid rails center the stage. Fixed rails overflowed near 900px.
+       Settings move below the stage when the right rail is too narrow. */
     .layout {
       display: grid;
       grid-template-columns: minmax(0, 1fr) var(--stage) minmax(0, 1fr);
@@ -157,7 +137,7 @@
     #index .num { color: var(--mute); font: 400 11px var(--sans); }
     /* Weight changes widened a selected name and could wrap the phone row. */
     #index ul a[aria-current] { text-decoration: underline; }
-    /* In the gutter, so selecting a tag never re-flows the list. */
+    /* Keep the selection marker outside the text to avoid reflow. */
     #index ul a[aria-current]:after {
       content: "\2190"; position: absolute; margin-left: 8px; color: var(--mute); font-weight: 400;
     }
@@ -186,8 +166,7 @@
     }
     .stage .status[hidden] { display: none; }
 
-    /* A status is two or three words, so caps and tracking suit it. An error
-       is a sentence, and that treatment makes a sentence unreadable. */
+    /* Sentence-length errors need normal case and spacing. */
     .stage .status.error {
       font-size: 12.5px; letter-spacing: 0; text-transform: none;
       line-height: 1.4; max-width: 30em;
@@ -210,8 +189,7 @@
       color: var(--mute);
       font-variant-numeric: tabular-nums;
       overflow-wrap: anywhere;
-      /* Two lines reserved, including padding and border. Longer metadata
-         can still grow naturally without overflowing a narrow deck. */
+      /* Reserve two lines; let longer metadata wrap without overflow. */
       min-height: calc(12px + 2 * 1.7 * 11.5px);
     }
     #readout b { color: var(--ink); font-weight: 500; }
@@ -221,9 +199,7 @@
 
     .switches { margin-top: 14px; }
 
-    /* In the rail there is room for a label above each row, and the mode
-       buttons wrap to four, where joined borders no longer read as one
-       control. The filled state carries it instead. */
+    /* Wrapped buttons use a filled state rather than joined borders. */
     @media (min-width: 1000px) {
       .layout { grid-template-areas: "index deck switches"; }
       .switches { margin-top: 0; gap: 20px; }
@@ -245,8 +221,7 @@
     footer.page a:hover { color: var(--ink); }
     footer.page .sep { color: var(--rule); margin: 0 6px; }
 
-    /* Below this the rails have no useful width left, so everything stacks.
-       The frame shrinks with the column, which caps it at --stage. */
+    /* Stack when the rails are too narrow. Keep the stage's width cap. */
     @media (max-width: 859px) {
       body { padding: 20px 18px 40px; }
       .layout {
@@ -295,7 +270,7 @@
     <h1>canvasplayer</h1>
     <p class="tagline">
       <a href="https://fffff.at/gml-week-graffiti-markup-language/">Graffiti Markup Language</a>
-      visualization demo. <a href="https://github.com/jamiew/canvasplayer">View code on GitHub</a>
+      playback. <a href="https://github.com/jamiew/canvasplayer">Source on GitHub</a>
     </p>
     <p class="renderers"><a href="?renderer=canvas" data-renderer="canvas">2D Canvas</a><a href="?renderer=webgl" data-renderer="webgl">three.js/WebGL</a><a href="./examples/iframe.html">iframe embed</a></p>
     <p class="notice" id="notice" role="status" hidden></p>
@@ -316,7 +291,7 @@
         <li><a href="?latest" id="link-latest">Latest</a></li>
         <li><a href="?random" id="link-random">Random</a></li>
       </ul>
-      <footer>find more tags on <a href="https://000000book.com">000000book.com</a></footer>
+      <footer>More tags: <a href="https://000000book.com">000000book.com</a></footer>
     </nav>
 
     <div class="deck">
@@ -349,9 +324,8 @@
     const API = 'https://000000book.com/data/';
     let pending = 0;
 
-    // Fetch by id, or "latest" or "random", which the API also answers to.
-    // Over JSONP: the API answers without an Access-Control-Allow-Origin
-    // header, so fetch cannot read the response.
+    // Accept a tag ID, "latest" or "random".
+    // JSONP is needed because the API has no CORS header.
     function load(id) {
       return new Promise((resolve, reject) => {
         const name = '__gmlLoad' + (pending++);
@@ -362,22 +336,20 @@
         window[name] = data => {
           answered = true;
           cleanup();
-          if (!data || !data.gml) reject(new Error('No GML in the response for ' + id));
+          if (!data || !data.gml) reject(new Error('No drawing data for tag ' + id));
           else resolve(parse(data.gml, data.id || id));
         };
         script.onerror = () => {
           cleanup();
-          // A script tag reports one undifferentiated error, so a missing
-          // tag and a dead network look the same here.
-          reject(new Error('Could not load tag ' + id + ' -- it may not exist'));
+          // Script errors cannot distinguish missing tags from network failures.
+          reject(new Error('Could not load tag ' + id));
         };
-        // A script that runs without calling back fires neither handler, so
-        // the promise hung and the callback stayed on window for good. An
-        // error page served with a 200 does exactly that.
+        // A 200 error page can load without calling the JSONP callback.
+        // Reject it rather than leaving the promise pending.
         script.onload = () => {
           if (answered) return;
           cleanup();
-          reject(new Error('#' + id + ' did not answer with GML'));
+          reject(new Error('Tag ' + id + ' did not return drawing data'));
         };
         script.src = API + encodeURIComponent(id) + '.json?callback=' + name;
         document.body.appendChild(script);
@@ -387,15 +359,8 @@
     const status = document.getElementById('status');
     const readout = document.getElementById('readout');
 
-    /*
-     * Which renderer, from ?renderer=. A canvas can only ever have one kind
-     * of context, so this is a page-load choice rather than a switch: the
-     * links reload rather than swapping the player under the controls.
-     *
-     * three.js is fetched here and nowhere else. Someone who never asks for
-     * WebGL never pays its 167 KB, which is why it is an await import()
-     * rather than a line at the top of the file.
-     */
+    // Context types cannot change, so renderer links reload the page.
+    // Load three.js only for WebGL; 2D visitors do not need it.
     const askedFor = new URLSearchParams(document.location.search).get('renderer');
     const canvas = document.getElementById('canvas');
     let player;
@@ -410,21 +375,19 @@
         player = new ThreePlayer(THREE, canvas);
         renderer = 'webgl';
       } catch (e) {
-        // No WebGL, or three failed to load. Say so and draw it flat, which
-        // beats a page that sits on "Loading" forever.
+        // Fall back to 2D rather than leaving the page stuck on Loading.
         const notice = document.getElementById('notice');
-        notice.textContent = 'This browser could not start WebGL, so the tag is drawn on a 2D canvas instead.';
+        notice.textContent = 'WebGL is unavailable. Showing the 2D renderer.';
         notice.hidden = false;
       }
     }
-    if (!player) player = new GmlPlayer(canvas);
+    if (!player) player = new GmlPlayer(canvas).setEffect('smooth', true);
 
     document.querySelectorAll('.renderers a[data-renderer]').forEach(a => {
       if (a.dataset.renderer === renderer) a.setAttribute('aria-current', 'page');
     });
 
-    // One player, re-fed on every tag, so the mode, effects and data layers
-    // survive a change of tag. The controls are built once, here.
+    // Reuse the player and controls so tag changes preserve settings.
     transport(player, document.getElementById('transport'));
     switches(player, document.getElementById('switches'));
 
@@ -433,11 +396,7 @@
     const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 
-    /*
-     * Fullscreen. A layout mode rather than the browser's fullscreen API, so
-     * it works in an iframe and can be linked to with ?fullscreen. The controls
-     * float over the frame instead of sitting under it.
-     */
+    // Apply the fullscreen layout and keep its URL in sync.
     const fullBtn = document.getElementById('fullscreen');
 
     function setFull(on) {
@@ -458,7 +417,7 @@
     const q = new URLSearchParams(document.location.search);
     setFull(q.has('fullscreen') ? q.get('fullscreen') !== '0' : false);
 
-    // ?id=154, ?latest or ?random, as it has always worked. Katsu by default.
+    // Accept ?id, ?latest or ?random. Default to Katsu.
     function tagFromUrl() {
       const params = new URLSearchParams(document.location.search);
       const id = params.get('id');
@@ -470,8 +429,7 @@
       player.pause().load(data);
 
       const tag = player.tag;
-      // Built as elements, not markup: `app` is whatever the capturing tool
-      // called itself, and anyone can publish a tag.
+      // Use text nodes: tag metadata comes from untrusted uploads.
       readout.replaceChildren();
       const part = (text, el) => {
         if (readout.childNodes.length) {
@@ -497,29 +455,23 @@
       else player.play();
     }
 
-    /*
-     * Carry the current tag across to the other renderers. The links are
-     * static in the markup, so this rewrites them: switching renderer should
-     * keep showing what you were already looking at.
-     */
+    // Preserve the current tag when switching renderers.
     function syncRenderers() {
       const shared = new URLSearchParams(document.location.search);
-      // ?random and ?latest would resolve again on the other renderer and
-      // land on a different tag, so once one has loaded the links name it.
+      // Resolve latest/random to an ID so switching keeps the same tag.
       if (player.tag && player.tag.id) {
         shared.delete('latest');
         shared.delete('random');
         shared.set('id', player.tag.id);
       }
       document.querySelectorAll('.renderers a[data-renderer]').forEach(a => {
-        // A copy each: the renderer is the only part that differs per link.
+        // Copy the shared parameters before changing the renderer.
         const params = new URLSearchParams(shared);
         params.set('renderer', a.dataset.renderer);
         a.href = '?' + params.toString();
       });
 
-      // Tag links change the selection, not the renderer or layout. Update
-      // the href too, so opening one in a new tab keeps those choices.
+      // Preserve renderer and layout when a tag link opens in a new tab.
       document.querySelectorAll('#index a[href^="?"]').forEach(a => {
         const target = new URL(a.href);
         const params = new URLSearchParams(document.location.search);
@@ -531,8 +483,7 @@
       });
     }
 
-    // Nothing to undo on failure: the frame keeps its status and the
-    // transport stays disabled.
+    // Failed initial loads keep the status visible and transport disabled.
     let wanted = 0;
 
     function go() {
@@ -545,8 +496,7 @@
       status.classList.remove('error');
       status.textContent = 'Loading #' + tagId;
 
-      // Click two tags quickly and the answers can come back in either
-      // order. Only the newest request is allowed to change the page.
+      // Ignore stale responses when tag requests finish out of order.
       const mine = ++wanted;
       load(tagId).then(data => {
         if (mine !== wanted) return;

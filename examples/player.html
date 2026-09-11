@@ -14,7 +14,7 @@
   .stage canvas { position: absolute; inset: 0; display: block; }
   #transport, #switches { margin-top: 12px; }
 </style>
-<h1>Player and optional controls</h1>
+<h1>Player with controls</h1>
 <div id="mount">
   <div class="stage"><canvas aria-label="Animated graffiti drawing from tag 100" role="img"></canvas></div>
   <div id="transport"></div>
@@ -34,17 +34,17 @@
     const response = await fetch('./tag.json');
     if (!response.ok) throw new Error('Could not load tag: HTTP ' + response.status);
     const json = await response.json();
-    // The player prepares the parsed tag and sizes the canvas to its stage.
     const player = new GmlPlayer(document.querySelector('canvas'), parse(json.gml, json.id));
+    player.setEffect('smooth', true);
 
-    // These two calls and the stylesheet are optional. Remove them for canvas only.
+    // Omit these calls and gml-ui.css for canvas only.
     const disposeTransport = transport(player, document.getElementById('transport'));
     const disposeSwitches = switches(player, document.getElementById('switches'));
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) player.seek(player.duration);
     else player.play();
-    status.textContent = 'Tag #' + json.id + '. Use the controls to play or scrub.';
+    status.textContent = 'Tag #' + json.id + '. Play or scrub with the controls.';
 
-    // In a framework, do this in the component's unmount hook instead.
+    // In a framework, dispose in the component's unmount hook.
     remove.disabled = false;
     remove.addEventListener('click', () => {
       disposeTransport();
@@ -52,7 +52,7 @@
       player.destroy();
       document.getElementById('mount').remove();
       remove.disabled = true;
-      status.textContent = 'Player removed. Its animation and listeners have been released.';
+      status.textContent = 'Player removed.';
     }, { once: true });
   } catch (error) {
     status.textContent = error.message;

@@ -1,7 +1,7 @@
 {
   "name": "canvasplayer",
   "version": "7.0.0",
-  "description": "Graffiti Markup Language (GML) playback on <canvas>. Parses, repairs and draws tags from #000000book. No dependencies, and an optional WebGL renderer.",
+  "description": "Graffiti Markup Language playback on canvas. No dependencies. Optional WebGL renderer.",
   "type": "module",
   "main": "./gml-player.js",
   "sideEffects": ["./gml-ui.css"],

@@ -1,12 +1,10 @@
 /*
- * gml-ui.js -- controls for a GmlPlayer.
+ * gml-ui.js: player controls.
  *
- * transport() is play and pause, a timeline to scrub with a tick where each
- * stroke starts, a clock and a speed button. switches() is a row of buttons
- * each for the ink mode, the effects and the data layers, with a line
- * underneath saying what the one under the cursor does. Plain DOM, styled
- * by gml-ui.css. Colors come from --ink, --paper, --mute and --rule on any
- * ancestor, or fall back to black on white.
+ * transport() adds play/pause, a timeline with stroke ticks, a clock and speed.
+ * switches() adds ink modes, effects, data layers and help text.
+ * gml-ui.css styles the DOM with --ink, --paper, --mute and --rule from any
+ * ancestor. Colors default to black on white.
  *
  * Public domain, Jamie Wilkinson & Free Art & Technology (F.A.T.) Lab.
  * No rights reserved.
@@ -46,8 +44,7 @@ export function transport(player, host) {
   const play = button('play', PLAY + PAUSE);
   play.setAttribute('aria-label', 'Play');
 
-  // The range input stays the real control and keeps its keyboard
-  // behavior; the visuals sit underneath.
+  // Keep the native range input's keyboard behavior above the custom visuals.
   const timeline = el('div', 'timeline');
   const fill = el('div', 'fill');
   const ticks = el('div', 'ticks');
@@ -150,27 +147,22 @@ export function transport(player, host) {
 }
 
 /*
- * One row each for mode, effects and layers. Mode is one-of-many, so it
- * joins into one control. The rest are independent, so they stay separate
- * chips.
+ * One row each for mode, effects and layers. Select one mode.
+ * Toggle effects and layers independently.
  */
 export function switches(player, host) {
   const hadClass = host.classList.contains('gml-switches');
   host.classList.add('gml-switches');
 
   /*
-   * What this renderer can do, asked of the renderer. Importing the lists
-   * from the 2D player would make every WebGL page download the 2D painter
-   * to read four constants.
+   * Read capabilities from the renderer so WebGL pages need not load the
+   * 2D painter for its constants.
    */
   const can = player.capabilities || {};
   const ABOUT = can.about || {};
 
   /*
-   * Describe whichever button the cursor or the keyboard is on, and the
-   * ink mode when it is on none of them. A name on a button is jargon
-   * until something says what it does, and there is no room to say it on the
-   * button itself.
+   * Describe the hovered or focused button. Otherwise describe the ink mode.
    */
   const about = el('p', 'about');
   const descriptions = new Map();
@@ -186,8 +178,7 @@ export function switches(player, host) {
   const disposals = [];
 
   function row(label, names, setClass, isOn, toggle) {
-    // A renderer that offers none of these leaves the row out rather than
-    // showing an empty one. That is how one controls file drives both.
+    // Omit options this renderer does not support.
     if (!names || !names.length) return;
     const wrap = el('div', 'row');
     const set = el('div', setClass);

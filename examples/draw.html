@@ -11,18 +11,18 @@
   canvas { display: block; width: 100%; height: auto; background: #000; }
 </style>
 <h1>Draw one frame</h1>
-<p>No player, animation loop or controls. Just parse, prepare and paint.</p>
+<p>Parse, prepare and paint without a player or animation loop.</p>
 <canvas aria-label="Finished graffiti drawing from tag 100" role="img"></canvas>
 <p id="status" role="status">Loading tag</p>
 <p>Data: <a href="https://000000book.com/data/100">tag #100</a>, captured with eyeSaver-003.
-  See also <a href="player.html">player and controls</a> and <a href="iframe.html">iframe embedding</a>.</p>
+  See <a href="player.html">player with controls</a> and <a href="iframe.html">embed examples</a>.</p>
 <script type="module">
   import { parse, prepare } from '../gml.js';
   import { paint } from '../gml-player.js';
 
   const status = document.getElementById('status');
   try {
-    // Bundled real tag data: no external API or CORS setup needed.
+    // Bundled data needs no external API or CORS setup.
     const response = await fetch('./tag.json');
     if (!response.ok) throw new Error('Could not load tag: HTTP ' + response.status);
     const json = await response.json();
@@ -34,7 +34,7 @@
     const ctx = canvas.getContext('2d');
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     paint(ctx, tag, { w: size, h: size, time: tag.duration });
-    status.textContent = 'Tag #' + tag.id + ': ' + tag.pointCount + ' recorded points.';
+    status.textContent = 'Tag #' + tag.id + ': ' + tag.pointCount + ' points.';
   } catch (error) {
     status.textContent = error.message;
   }

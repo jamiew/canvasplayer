@@ -1,20 +1,14 @@
 /*
- * gml-three.js -- Graffiti Markup Language playback in WebGL.
+ * gml-three.js: Graffiti Markup Language playback in WebGL.
  *
- * The same tags as gml-player.js, drawn with three.js instead of a 2D
- * canvas. Time is the third axis: a sample's z is the moment it was written,
- * so a tag has real thickness and the camera can look along the writing.
- * Dust sits on a vector field the drawing head shoves around, and every
- * particle trails a line back to where it started.
+ * Draw tags with three.js. Sample time sets depth.
+ * The drawing head moves dust through a vector field.
+ * Each particle trails a line to its starting point.
  *
- * After Evan Roth's ga4-3d-player fork of canvasplayer, which is where the
- * look, the field and most of these numbers come from.
- *
- * What is different from that fork: the tag comes through gml.js rather than
- * a parser of its own, so it arrives with its timing repaired, its sideways
- * captures turned upright, and a width per sample measured from the hand's
- * speed. The fork rebuilt all three, less well -- it draws #147 on its side,
- * because it never asks which way up the capture was.
+ * Based on Evan Roth's ga4-3d-player fork of canvasplayer.
+ * Its look, field and settings inform this renderer.
+ * Shared gml.js preparation repairs timing, orientation and width.
+ * Checking capture orientation avoids the fork's sideways rendering of #147.
  *
  * Public domain, Jamie Wilkinson & Free Art & Technology (F.A.T.) Lab.
  * No rights reserved.
@@ -23,7 +17,7 @@
 import { prepare, clamp } from './gml.js';
 
 export const DEFAULTS = {
-  // How far the tag reaches front to back, as a multiple of its own size.
+  // Front-to-back depth as a multiple of the tag's size.
   depthSpan: 1.6,
 
   fov: 50,
@@ -35,21 +29,17 @@ export const DEFAULTS = {
   orbitSpeed: 0.01,
   zoomSpeed: 0.0015,
 
-  // Strokes are drawn slightly transparent, as the fork had them.
+  // Slight transparency matches the fork.
   strokeAlpha: 0.9,
-  // gml.js measures width as a fraction of the artwork's size, tuned for a
-  // 2D canvas. In world units, where the tag is about one across, that comes
-  // out thin: the fork's ribbons are roughly twice as fat.
+  // gml.js widths suit 2D. Double them for the fork's wider world-space ribbons.
   strokeWidth: 2,
-  // Samples over which a stroke opens and closes, so it does not start and
-  // stop at full width.
+  // Samples used to taper each stroke's start and end.
   taper: 6,
 
   /*
-   * The dust field. A grid of particles over the tag; the drawing head
-   * injects its own motion into a coarse velocity field, the particles ride
-   * whichever cell they stand in, and the field decays. Once a particle has
-   * moved it stays awake, and remembers when it woke: that is its depth.
+   * The drawing head pushes a decaying velocity field.
+   * Particles follow their current cell and stay awake once moved.
+   * Wake time sets their depth.
    */
   cols: 144,
   rows: 108,
@@ -59,40 +49,36 @@ export const DEFAULTS = {
   injectScale: 2.75,
   injectRadius: 4,
   injectStrength: 0.32,
-  // Room around the tag for the dust to live in, as a fraction of its size.
+  // Dust margin as a fraction of the tag's size.
   margin: 0.45,
   dotSize: 0.012,
   particleAlpha: 0.85,
   trailAlpha: 0.5,
 
-  // End of a loop: hold, then let gravity have it while it fades out.
+  // Hold at the loop's end, then fall and fade.
   holdSec: 1,
   fadeSec: 2.6,
   gravity: 0.9,
 
   background: 0x000000,
   color: 0xffffff,
-  // Playback rate, so the shared transport's speed button works here too.
+  // Playback rate for the shared transport.
   speed: 1
 };
 
 /*
- * A <canvas> that plays a parsed tag in WebGL.
- *
- * Give it the shape parse() returns, or nothing and load() one later. The
- * canvas sizes itself to its parent, so give that element the dimensions you
- * want. Events: 'load' with the prepared tag, 'frame' with { time, duration }.
+ * Play a parsed tag on a WebGL canvas. Pass a tag now or call load() later.
+ * Size the canvas's parent to set its dimensions.
+ * Events: 'load' with the prepared tag, 'frame' with { time, duration }.
  */
 export class ThreePlayer {
   /*
-   * `THREE` is an argument rather than an import. Only preparation is shared
-   * with the 2D renderer; bring the three.js copy you already use:
+   * Pass your three.js copy as `THREE`. Only preparation is shared with 2D.
    *
    *   import * as THREE from 'three';
    *   const player = new ThreePlayer(THREE, canvas, tag);
    *
-   * Tested against r160, which is what the demo vendors. Only core APIs
-   * are used.
+   * Uses core APIs. Tested against r160, which the demo vendors.
    */
   constructor(THREE, canvas, tag, options) {
     this.THREE = THREE;
@@ -105,8 +91,7 @@ export class ThreePlayer {
     this.destroyed = false;
     this.canvasStyle = { width: canvas.style.width, height: canvas.style.height };
 
-    // One look, no modes and no data layers, so the controls show only the
-    // transport. gml-ui.js reads this rather than importing the 2D player's.
+    // No display options, so the shared UI shows only transport controls.
     this.capabilities = { modes: [], effects: [], layers: [], about: {} };
 
     this.camera3 = { yaw: 0, pitch: 0, dist: this.opts.dist };
@@ -159,8 +144,7 @@ export class ThreePlayer {
     this.clear();
     this.tag = prepare(tag, this.opts);
 
-    // Centre the tag's own box and scale it to about one unit across, so
-    // every other number here can be read as a multiple of the artwork.
+    // Center and scale to one unit across. Other sizes are artwork multiples.
     const b = this.tag.bounds;
     this.cx = (b.x0 + b.x1) / 2;
     this.cy = (b.y0 + b.y1) / 2;
@@ -179,8 +163,7 @@ export class ThreePlayer {
     return this;
   }
 
-  // Capture space to world. Canvas y runs down and three.js y runs up, so
-  // this is the one place the sign flips.
+  // Flip y here: canvas coordinates run down, three.js coordinates run up.
   world(x, y, t) {
     return [
       (x - this.cx) * this.scale,
@@ -206,14 +189,9 @@ export class ThreePlayer {
   }
 
   /*
-   * One ribbon per stroke: two vertices per sample, offset along the normal
-   * by half the width gml.js already worked out from the hand's speed. The
-   * fork measured its own widths off a percentile of point spacing; this
-   * uses the real thing, so a slow pass is fat and a fast one is thin for
-   * the same reason it is on the 2D canvas.
-   *
-   * Playback moves the draw range and interpolates just its leading pair of
-   * vertices. Keep the original pairs so backwards seeks restore the ribbon.
+   * Two vertices per sample form a ribbon at gml.js's speed-based width.
+   * Playback adjusts the draw range and interpolates its leading vertex pair.
+   * Keep original pairs so backward seeks can restore the ribbon.
    */
   buildStrokes() {
     const { opts } = this;
@@ -231,8 +209,7 @@ export class ThreePlayer {
         const dx = c[0] - a[0];
         const dy = c[1] - a[1];
         const len = Math.hypot(dx, dy) || 1;
-        // Perpendicular in the drawing's own plane. The ribbon stays flat in
-        // xy and gets its depth from where the samples sit in z.
+        // The normal stays in xy. Sample time supplies z.
         const px = dx || dy ? -dy / len : 1;
         const py = dx / len;
 
@@ -283,10 +260,9 @@ export class ThreePlayer {
 
   buildDust() {
     const { opts } = this;
-    // Dropped before the field is rebuilt: resetDust() uploads, and until
-    // the new geometries exist there is nothing safe to upload into.
+    // Clear old geometry before resetDust() tries to upload into it.
     this.dotGeo = this.trailGeo = null;
-    // A phone has neither the pixels nor the patience for the full grid.
+    // Smaller screens need fewer particles.
     const small = Math.min(globalThis.innerWidth || Infinity, globalThis.innerHeight || Infinity) < 600;
     this.cols = small ? 96 : opts.cols;
     this.rows = small ? 72 : opts.rows;
@@ -318,8 +294,7 @@ export class ThreePlayer {
     this.dots.frustumCulled = false;
     this.scene.add(this.dots);
 
-    // Two vertices per trail, bright where the particle is and black where
-    // it began, so each line fades out along its own length.
+    // Trails fade from the bright particle to its black starting vertex.
     this.trailPos = new Float32Array(n * 2 * 3);
     const colors = new Float32Array(n * 2 * 3);
     for (let k = 0; k < n; k++) {
@@ -358,16 +333,14 @@ export class ThreePlayer {
     this.headPoint = 1;
     this.simulationTime = this.elapsed;
     this.simulationRemainder = 0;
-    // Push the empty field to the GPU. Without this, load() and seek() reset
-    // the particles and then draw whatever the buffers last held, over a
-    // draw range nothing has narrowed: a fresh geometry defaults to drawing
-    // everything, so an unstepped field renders 15,552 points at the origin.
+    // Upload the reset field so load() and seek() cannot draw stale buffers.
+    // Fresh geometry draws everything by default, placing 15,552 untouched
+    // particles at the origin unless we also narrow the draw range.
     if (this.dotGeo) this.uploadDust();
   }
 
-  // The head's own motion, spread into the field over a few cells. Positions,
-  // field impulses and particle velocities all use capture units; only the
-  // lookup and the injection radius use cells.
+  // Spread head motion across nearby cells. Positions, impulses and velocities
+  // use capture units. Only lookup and injection radius use cells.
   inject(x, y, stroke) {
     if (stroke !== this.injectLastStroke) {
       this.injectLastStroke = stroke;
@@ -384,9 +357,8 @@ export class ThreePlayer {
     const { opts, field } = this;
     const cx = (x - this.stage.x0) / this.cw;
     const cy = (y - this.stage.y0) / this.ch;
-    // Dividing these by cell size made cell-space motion act as capture-space
-    // velocity. A denser grid then flung particles farther, drawing huge rays
-    // back to their origins even though the fixed-step integrator was stable.
+    // Dividing by cell size mixed cell and capture units. Denser grids then
+    // flung particles farther, despite a stable fixed-step integrator.
     const vx = dx * opts.injectScale;
     const vy = dy * opts.injectScale;
     const R = opts.injectRadius;
@@ -434,8 +406,7 @@ export class ThreePlayer {
     const { P, field, opts } = this;
     const drag = Math.min(1, opts.friction * dt);
     const push = opts.reactivity * dt;
-    // Gravity is specified in artwork sizes per second squared, just like
-    // the world-space drawing. Convert it back to capture units for physics.
+    // Convert gravity from artwork sizes per second squared to capture units.
     const g = falling ? opts.gravity * this.size * dt : 0;
     const decay = Math.pow(opts.fieldDecay, dt * 60);
 
@@ -465,9 +436,8 @@ export class ThreePlayer {
     }
   }
 
-  // Only the particles that have woken go to the GPU, so an untouched grid
-  // costs nothing to draw or to upload: the update ranges stop at the last
-  // one packed, rather than sending the whole buffer every step.
+  // Upload and draw only awake particles. End update ranges at the last
+  // packed particle so an untouched grid costs nothing.
   uploadDust() {
     const { P } = this;
     let n = 0;
@@ -515,9 +485,8 @@ export class ThreePlayer {
     // size from the DPR-scaled drawing buffer and grows on every resize.
     this.renderer.setSize(w, h);
     this.camera.aspect = w / h;
-    // Keep the same enclosing sphere in view when width, rather than height,
-    // limits the field of view. Changing the camera's distance multiplier,
-    // not its orbit/zoom state, also preserves a user's view across resize.
+    // Keep the enclosing sphere visible when width limits the field of view.
+    // Adjust distance separately to preserve orbit and zoom across resizes.
     const halfFov = this.camera.fov * Math.PI / 360;
     const limitingFov = Math.atan(Math.tan(halfFov) * Math.min(1, this.camera.aspect));
     this.cameraDistanceScale = Math.sin(halfFov) / Math.sin(limitingFov);
@@ -549,9 +518,8 @@ export class ThreePlayer {
         mesh.geometry.setDrawRange(0, lo ? 6 : 0);
         return;
       }
-      // The pair the head is between is bent back to meet it. Put the last
-      // frame's pair back first, unless it is the same pair and about to be
-      // rewritten anyway.
+      // Bend the leading pair back to the head. Restore the previous pair
+      // unless this frame will overwrite it.
       const edge = lo > 0 && lo < pts.length ? lo : -1;
       if (m.edge >= 0 && m.edge !== edge) {
         const offset = m.edge * 6;
@@ -604,8 +572,7 @@ export class ThreePlayer {
 
     this.elapsed += dt;
     if (!this.dragging) this.camera3.yaw += opts.autoRotate * dt;
-    // Loop before drawing, not after: resetting afterwards showed one frame
-    // of the finished tag at full opacity, a blink at the top of every loop.
+    // Reset before drawing. Resetting after flashed the finished tag at full opacity.
     if (this.elapsed >= loopEnd) {
       this.elapsed %= loopEnd;
       this.resetDust();
@@ -635,9 +602,8 @@ export class ThreePlayer {
     this.last = null;
     const frame = ts => {
       if (!this.playing) return;
-      // Capped like the 2D player, so a tab left in the background resumes
-      // where it was. Fed the whole gap, the field took every stroke crossed
-      // in that time at once and blew the dust off the tag on return.
+      // Cap background-tab gaps. Applying a whole gap injected every crossed
+      // stroke at once and blew dust off the tag when the tab returned.
       const dt = this.last === null ? 0 : clamp((ts - this.last) / 1000, 0, 0.1);
       this.last = ts;
       this.step(dt * this.opts.speed).render();
@@ -666,8 +632,7 @@ export class ThreePlayer {
     return this;
   }
 
-  // A field cannot be run backwards, so scrubbing rebuilds the dust from
-  // where it lands rather than showing a history that did not happen.
+  // The field cannot run backward. Reset dust at the seek position.
   seek(t) {
     if (this.destroyed) return this;
     this.elapsed = clamp(t, 0, this.tag.duration);
@@ -701,8 +666,7 @@ export class ThreePlayer {
       lastX = e.clientX;
       lastY = e.clientY;
       this.camera3.yaw += dx * this.opts.orbitSpeed;
-      // Short of straight overhead, where the tag goes edge-on and the
-      // camera tips over the top.
+      // Stop before the tag goes edge-on and the camera tips overhead.
       this.camera3.pitch = clamp(this.camera3.pitch + dy * this.opts.orbitSpeed, -1.3, 1.3);
       if (!this.playing) this.render();
     };

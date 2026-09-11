@@ -8,8 +8,7 @@
   --sans: "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
 }
 
-/* Swapping paper and ink carries the page. Buttons, links, the timeline
-   thumb and every pressed state are built from the pair. */
+/* Page and control colors share the paper and ink variables. */
 :root[data-theme="dark"] {
   color-scheme: dark;
   --paper: #000;

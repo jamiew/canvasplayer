@@ -1,18 +1,16 @@
 /*
- * gml.js -- read Graffiti Markup Language and get it ready to draw.
+ * gml.js: parse and prepare Graffiti Markup Language.
  *
- * Pure: no DOM, no canvas, no globals. parse() turns the JSON tree that
- * #000000book serves into strokes of [x, y, time]. prepare() repairs the
- * timing, measures speed and width, and plans where the ink will run. Draw
- * the result with gml-player.js, or with anything else.
+ * No DOM, canvas or globals. parse() converts #000000book JSON to strokes
+ * of [x, y, time]. prepare() repairs timing, measures speed and width, and
+ * plans drips for any renderer.
  *
  * Public domain, Jamie Wilkinson & Free Art & Technology (F.A.T.) Lab.
  * No rights reserved.
  */
 
 export const DEFAULTS = {
-  // Fractions of the artwork's on-screen size. A marker lays down more ink
-  // the slower it moves, so speed maps to width inversely.
+  // Widths as fractions of the artwork's on-screen size. Slower means wider.
   maxWidth: 0.052,
   minWidth: 0.014,
   // Fraction of this tag's peak speed that draws the thinnest line.
@@ -20,22 +18,18 @@ export const DEFAULTS = {
   // Higher smooths out capture jitter.
   smoothing: 0.72,
 
-  // One run per this many samples, capped per stroke. Runs are chosen by
-  // ranking a stroke's own samples slowest-first, not by a fixed speed: a
-  // fast tag never dropped under an absolute threshold and so never dripped
-  // at all, while a slow one dripped from everywhere.
+  // Samples per run, capped per stroke. planDrips() ranks by relative speed.
   dripEvery: 18,
   dripRuns: 14,
   // Samples between runs, so a slow passage makes one rather than a row.
   dripGap: 7,
-  // How much of a run's size comes from how hard the pen was bearing down,
-  // and how much is left to vary run to run.
+  // Pressure's contribution to run size, and variation between runs.
   dripPressure: 1.5,
   dripVary: 0.5
 };
 
-// Longest pause kept as recorded, and what a longer one becomes. Samples
-// land 10-40ms apart, so anything near these is a stall, not a hand.
+// Pause limits and replacement lengths, in seconds. Samples arrive 10-40ms
+// apart, so gaps this long indicate a stall, not hand movement.
 const MAX_STROKE_GAP = 2.5;
 const MAX_STROKE_GAP_FILL = 0.4;
 const MAX_PAUSE = 1.2;
@@ -44,8 +38,7 @@ const MAX_PAUSE_FILL = 0.4;
 export function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
 export function lerp(a, b, t) { return a + (b - a) * t; }
 
-// Stable pseudo-random in [0,1) from two integers. Jitter and drips scatter,
-// but a tag must look the same on every repaint, so this replaces random.
+// Stable pseudo-random values in [0,1) keep jitter and drips identical on repaint.
 export function noise(a, b) {
   let h = (a * 374761393 + b * 668265263) | 0;
   h = (h ^ (h >>> 13)) * 1274126177;
@@ -54,15 +47,13 @@ export function noise(a, b) {
 
 /* --- parse ------------------------------------------------------------- */
 
-// The XML-to-JSON conversion drops one-element arrays down to bare objects,
-// so a lone <stroke> or <pt> arrives without one.
+// XML-to-JSON conversion turns a lone <stroke> or <pt> into a bare object.
 function list(value) {
   if (value === null || value === undefined) return [];
   return Array.isArray(value) ? value : [value];
 }
 
-// And the other way round, where only one is meant. #000000book wraps <tag>
-// in an array.
+// #000000book wraps the single <tag> in an array.
 function first(value) { return Array.isArray(value) ? (value[0] || {}) : (value || {}); }
 
 function num(value) {
@@ -71,22 +62,19 @@ function num(value) {
 }
 
 /*
- * Which way was up when the tag was captured.
+ * Detect the capture's orientation.
  *
- * <environment><up> along +x means the device was sideways. Whether <up> is
- * there at all follows the capture app, not the tag number: Fat Tag - Katsu
- * Edition and Graffiti Analysis 2.0 write it, Graffiti Analysis 1.0 never
- * does however late the tag (#1399 has none), and #147 ships an <environment>
- * with nothing in it.
+ * <environment><up> along +x means sideways. Capture apps decide whether
+ * <up> exists, not tag numbers. Fat Tag - Katsu Edition and Graffiti Analysis
+ * 2.0 write it. Graffiti Analysis 1.0 does not, even for #1399.
+ * Tag #147 has an empty <environment>.
  *
- * So the geometry has to answer it when <up> is missing: both axes are
- * normalized against the same edge, so y can only pass 1 on a sideways
- * capture.
+ * Without <up>, use geometry. Both axes share a normalization edge,
+ * so y can exceed 1 only in a sideways capture.
  *
- * Do not guess from the client's name. Graffiti Analysis 1.0 wrote the tag's
- * name into <client><name>, not the app's, so #161 is "katsu-4", #158 is
- * "jesus-saves" and #1399 is "seen". The old /Katsu/ match laid #161 on its
- * side.
+ * Do not use the client name. Graffiti Analysis 1.0 put tag names there:
+ * #161 is "katsu-4", #158 is "jesus-saves" and #1399 is "seen".
+ * Matching /Katsu/ wrongly rotated #161.
  */
 export function isLandscape(environment, strokes) {
   const up = (environment && environment.up) || {};
@@ -99,9 +87,8 @@ export function isLandscape(environment, strokes) {
 }
 
 /*
- * Flatten the tree #000000book serves into { id, app, rotate, strokes },
- * each stroke a list of [x, y, time]. Timing passes through untouched:
- * prepare() repairs it and says so.
+ * Flatten #000000book JSON into { id, app, rotate, strokes }.
+ * Each stroke holds [x, y, time] points. Leave timing repairs to prepare().
  */
 export function parse(gml, id) {
   const tag = first(gml && (gml.tag || gml.GML));
@@ -131,9 +118,8 @@ export function parse(gml, id) {
 /* --- prepare ----------------------------------------------------------- */
 
 /*
- * Capture apps are inconsistent about time. Some write zeroes, some unix
- * epochs, some leave minute-long gaps, some emit points out of order. Repair
- * it, and record the repair so a debug view can show it.
+ * Repair zeros, Unix timestamps, long gaps and out-of-order points.
+ * Record repairs for debug views.
  */
 function repairTiming(strokes) {
   const report = { synthesized: false, reordered: 0, gapsClosed: 0, origin: 0 };
@@ -160,20 +146,16 @@ function repairTiming(strokes) {
     span = ms ? span / 1000 : span;
   }
 
-  // No usable timing. Fall back to an even 60Hz, and say so.
+  // No usable timing. Record the fallback to 60Hz.
   if (span <= 0) {
     report.synthesized = true;
     flat.forEach((p, i) => { p[2] = i / 60; });
     return report;
   }
 
-  // Rebuild from the gaps, not by editing timestamps in place: once a gap
-  // closes, the repaired clock no longer lines up with the recorded one, so
-  // every comparison has to use the raw previous time.
-  //
-  // Gaps within a stroke are the gesture, and are kept. Gaps between strokes
-  // are the writer pausing: worth keeping in miniature, not worth waiting
-  // through.
+  // Rebuild from raw gaps. Closing a gap shifts the repaired clock, so
+  // comparisons must use the previous raw time, not the repaired time.
+  // Keep gesture timing within strokes and shorten long pauses between them.
   let clock = 0;
   let prevEnd = null;
   strokes.forEach(stroke => {
@@ -200,9 +182,8 @@ function repairTiming(strokes) {
 }
 
 /*
- * Per-point speed and width, computed once up front. Width scales against
- * this tag's own range, because "fast" only means anything relative to the
- * rest of the same hand.
+ * Compute speed and width once per point. Scale width against the tag's
+ * own speed range, since hand speed varies between tags.
  */
 function measure(strokes, opts) {
   let peak = 0;
@@ -257,14 +238,11 @@ function bounds(strokes) {
 }
 
 /*
- * Where the ink will run, decided once for the whole tag. Everything about a
- * run follows from the capture, so a tag always drips the same way, and the
- * painter only has to ask which runs have been born by time t.
+ * Plan deterministic drips once. The painter reveals each run at its born time.
  *
- * Each stroke's samples are ranked by its own speed and the slowest are
- * taken, spaced apart, up to a count that follows the stroke's length. That
- * is what makes runs land consistently: a threshold on raw speed gave a fast
- * tag none at all and a slow one a run from every sample.
+ * Choose each stroke's slowest samples, spaced apart, with a count based on
+ * stroke length. A raw speed threshold gave fast tags no drips and slow
+ * tags a drip at every sample.
  */
 function planDrips(strokes, peakSpeed, opts) {
   const heavy = (opts.maxWidth + opts.minWidth) / 2;
@@ -290,16 +268,11 @@ function planDrips(strokes, peakSpeed, opts) {
     if (last > 0 && stroke.width[last] > heavy && !chosen.includes(last)) chosen.push(last);
 
     chosen.sort((a, b) => a - b).forEach(i => {
-      // How hard the pen was bearing down, as far as the capture can say:
-      // the slower it was moving, the more ink it left. Raised to a power so
-      // the genuinely slow points stand well clear of the merely unhurried.
+      // Slower movement leaves more ink. The exponent emphasizes slow points.
       const slow = 1 - clamp(stroke.speed[i] / peakSpeed, 0, 1);
       const pressure = Math.pow(slow, opts.dripPressure);
 
-      // A run is a pool of ink stretched thin, so one pool feeds both how
-      // fat it is and how far it gets: paint runs when the wet film beats
-      // what the wall can hold, and the more of it there is, the further it
-      // goes.
+      // The same pool determines width and length: more ink runs farther.
       const dwell = pts[i][2] - pts[i - 1][2];
       const pool = pressure * (1 + dwell * 4);
       const vary = 1 + (noise(si * 17 + i, 5) - 0.5) * 2 * opts.dripVary;
@@ -314,8 +287,7 @@ function planDrips(strokes, peakSpeed, opts) {
         born: pts[i][2],
         // Runs wander rather than falling dead straight.
         drift: (noise(si * 31 + i, 3) - 0.5) * 2,
-        // Ink creeps: a run takes seconds to reach its full length. Staggered
-        // off the point index, so neighbours do not fall in lockstep.
+        // Seconds to reach full length. Stagger by index to avoid synchronized falls.
         fall: 2.6 + (i % 7) * 0.45
       });
     });
@@ -335,13 +307,12 @@ function planDrips(strokes, peakSpeed, opts) {
  *   timing      what the repair changed: { synthesized, reordered, gapsClosed, origin }
  *   drips       where ink will run, each with a `born` time
  *
- * The input is not touched. Landscape captures are given a quarter turn.
+ * Leave the input untouched. Rotate landscape captures a quarter turn.
  */
 export function prepare(tag, options) {
   const opts = { ...DEFAULTS, ...options };
-  // Empty strokes are dropped here rather than guarded against everywhere
-  // downstream. The parser never makes one, but prepare() is public and a
-  // hand-built tag can.
+  // Drop empty strokes here to keep them out of downstream code.
+  // parse() never creates them, but callers can pass hand-built tags.
   const strokes = ((tag && tag.strokes) || [])
     .map(s => ({ points: ((s && s.points) || []).map(p => [p[0], p[1], p[2]]) }))
     .filter(s => s.points.length);

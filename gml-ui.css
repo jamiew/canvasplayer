@@ -1,8 +1,7 @@
 /*
- * gml-ui.css -- structure for the controls gml-ui.js builds.
+ * gml-ui.css: player control styles.
  *
- * Colors come from four custom properties on any ancestor, so the controls
- * follow whatever theme the page has: --ink, --paper, --mute, --rule.
+ * Set --ink, --paper, --mute and --rule on an ancestor to match the page theme.
  */
 
 .gml-transport button,
@@ -19,8 +18,7 @@
   cursor: pointer;
 }
 
-/* The switches are the ones you reach for, so they are a size up from the
-   transport's and shaped like the buttons in the page's own corner. */
+/* Larger switches make the main controls easier to reach. */
 .gml-switches button {
   min-height: 30px;
   padding: 7px 12px;
@@ -60,8 +58,8 @@
   white-space: nowrap;
 }
 
-/* Reserve the full duration and every offered rate, not just today's text.
-   The invisible copies share the live value's cell and stay out of speech. */
+/* Reserve space for the full duration and every rate.
+   Hide the sizing copies from view and screen readers. */
 .gml-transport .clock,
 .gml-transport .rate { display: grid; flex-shrink: 0; font-variant-numeric: tabular-nums; }
 .gml-transport .clock > span,
@@ -95,8 +93,7 @@
 }
 .gml-transport input[type="range"]::-moz-range-track { background: none; }
 
-/* Sharing one row leaves the timeline too narrow to scrub in a small host.
-   It takes a row of its own, above the buttons. */
+/* Give the timeline its own row in narrow hosts so it stays easy to scrub. */
 @container (max-width: 480px) {
   .gml-transport .timeline { order: -1; flex: 1 0 100%; }
 }
@@ -124,13 +121,10 @@
   background: var(--ink, #000); border-color: var(--ink, #000); color: var(--paper, #fff);
 }
 
-/* The ink mode is one-of-many, but the filled pressed state says so on its
-   own. Joining the buttons into a bar fought the rounded corners and made
-   the one row that matters most look unlike all the others. */
+/* The filled state marks the selected mode without joining the buttons. */
 .gml-switches .segmented { gap: 8px 6px; }
 
-/* Every available description shares one cell. The longest wrapped one
-   reserves its real height, including in a narrow host, without clipping. */
+/* Shared cells reserve the longest description's wrapped height without clipping. */
 .gml-switches .about {
   margin: 2px 0 0;
   display: grid;

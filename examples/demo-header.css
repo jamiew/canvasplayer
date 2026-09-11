@@ -17,7 +17,7 @@
   width: 16px; height: 16px;
   transition: opacity .2s ease, transform .3s cubic-bezier(.4, 0, .2, 1);
 }
-/* Both icons are always in the box. The inactive one winds away. */
+/* Both icons reserve the same space while the inactive one rotates away. */
 #theme .moon { opacity: 0; transform: rotate(-90deg) scale(.5); }
 :root[data-theme="dark"] #theme .sun { opacity: 0; transform: rotate(90deg) scale(.5); }
 :root[data-theme="dark"] #theme .moon { opacity: 1; transform: none; }
@@ -36,8 +36,7 @@ h1 {
   line-height: 1;
 }
 
-/* Switching renderer reloads the page: a canvas cannot change its
-   context type after either renderer has claimed it. */
+/* Renderer links reload because canvas context types cannot change. */
 .renderers { margin: 10px 0 0; font-size: 12px; color: var(--mute); }
 .renderers a { color: var(--mute); text-decoration: none; margin: 0 6px; }
 .renderers a:hover { color: var(--ink); text-decoration: underline; }

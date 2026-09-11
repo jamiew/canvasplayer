@@ -1,10 +1,10 @@
-// Runs before the stylesheet, or the page flashes the wrong theme.
+// Apply before styles to avoid flashing the wrong theme.
 (function () {
   const root = document.documentElement;
   const system = matchMedia('(prefers-color-scheme: dark)');
   let button;
 
-  // Private browsing makes localStorage throw rather than return nothing.
+  // Storage access can throw in private browsing.
   function savedTheme() {
     try { return localStorage.getItem('theme'); } catch (e) { return null; }
   }
@@ -27,12 +27,12 @@
     });
   }, { once: true });
 
-  // Follow the system until the reader picks a side.
+  // Follow the system until the user chooses a theme.
   system.addEventListener('change', () => {
     if (!preference) applyTheme();
   });
 
-  // Same-origin frames and tabs share a preference, not a messaging API.
+  // Share the preference across same-origin frames and tabs.
   window.addEventListener('storage', event => {
     if (event.key !== 'theme' && event.key !== null) return;
     preference = savedTheme();

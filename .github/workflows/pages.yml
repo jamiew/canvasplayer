@@ -1,8 +1,6 @@
 name: Pages
 
-# One branch, one site. The renderers used to live on branches of their own
-# and this job assembled them; they are modules now, so the copy is the whole
-# build. Everything is static, so there is no build step.
+# Static site. No build step.
 on:
   push:
     branches: [main]
@@ -13,7 +11,7 @@ permissions:
   pages: write
   id-token: write
 
-# Let a run in progress finish rather than cancelling it mid-deploy.
+# Let active deployments finish.
 concurrency:
   group: pages
   cancel-in-progress: false
@@ -27,7 +25,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # A site that will not pass its own tests does not get published.
       - run: npm test
 
       - uses: actions/configure-pages@v5

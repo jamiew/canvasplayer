@@ -22,7 +22,7 @@
 
   const status = document.getElementById('status');
   try {
-    // Bundled real tag data: no external API or CORS setup needed.
+    // Bundled data needs no external API or CORS setup.
     const response = await fetch('./tag.json');
     if (!response.ok) throw new Error('Could not load tag: HTTP ' + response.status);
     const json = await response.json();
