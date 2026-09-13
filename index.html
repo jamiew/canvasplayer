@@ -44,14 +44,14 @@
     /* Layout fullscreen works in iframes and preserves browser chrome.
        ?fullscreen restores it on reload; Escape exits. */
     :root[data-fullscreen] body { max-width: none; padding: 0; height: 100vh; overflow: hidden; background: #000; }
-    :root[data-fullscreen] .masthead > :not(.title-row),
-    :root[data-fullscreen] .title-row h1,
+    :root[data-fullscreen] .masthead > :not(.mode-row),
+    :root[data-fullscreen] .mode-row .renderers,
     :root[data-fullscreen] #theme,
     :root[data-fullscreen] #index,
     :root[data-fullscreen] #readout,
     :root[data-fullscreen] footer.page { display: none; }
     :root[data-fullscreen] .masthead,
-    :root[data-fullscreen] .title-row { display: contents; }
+    :root[data-fullscreen] .mode-row { display: contents; }
     :root[data-fullscreen] .layout { display: block; }
     :root[data-fullscreen] .deck { width: 100vw; }
     :root[data-fullscreen] .stage { width: 100vw; height: 100vh; aspect-ratio: auto; border: 0; }
@@ -244,8 +244,14 @@
 <body>
 
   <header class="masthead">
-    <div class="title-row">
     <h1><a href="./">canvasplayer</a></h1>
+
+    <p class="tagline">
+      <a href="https://fffff.at/gml-week-graffiti-markup-language/">Graffiti Markup Language</a>
+      playback. <a href="https://github.com/jamiew/canvasplayer">Source on GitHub</a>
+    </p>
+    <div class="mode-row">
+    <nav class="renderers" aria-label="Player mode"><a href="?renderer=canvas" data-renderer="canvas">Canvas (2D)</a><a href="?renderer=webgl" data-renderer="webgl">Threejs/WebGL (3D)</a><a href="./embeds/">Embed player</a></nav>
   <div class="topbar">
     <button id="fullscreen" type="button" aria-label="Fill the window" aria-pressed="false">
       <svg class="grow" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -270,12 +276,6 @@
     </button>
   </div>
     </div>
-
-    <p class="tagline">
-      <a href="https://fffff.at/gml-week-graffiti-markup-language/">Graffiti Markup Language</a>
-      playback. <a href="https://github.com/jamiew/canvasplayer">Source on GitHub</a>
-    </p>
-    <nav class="renderers" aria-label="Player mode"><a href="?renderer=canvas" data-renderer="canvas">Canvas (2D)</a><a href="?renderer=webgl" data-renderer="webgl">Threejs/WebGL (3D)</a><a href="./embeds/">Embed player</a></nav>
     <p class="notice" id="notice" role="status" hidden></p>
   </header>
 

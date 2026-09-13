@@ -30,8 +30,19 @@ body, .stage, .gml-transport .rail, .gml-transport .fill {
 
 
 /* Shared masthead for the demo and its embed gallery. */
-.title-row { display: flex; align-items: center; justify-content: center; gap: 12px; }
-.topbar { display: flex; flex: none; gap: 4px; }
+.mode-row { display: grid; gap: 12px; margin-top: 16px; }
+.topbar { display: flex; justify-self: end; gap: 4px; }
+
+/* Match the demo's stage and right-hand settings column. */
+@media (min-width: 1000px) {
+  .mode-row {
+    grid-template-columns: minmax(0, 1fr) var(--stage, 560px) minmax(0, 1fr);
+    gap: 0 24px;
+    align-items: center;
+  }
+  .mode-row .renderers { grid-column: 2; }
+  .mode-row .topbar { grid-column: 3; justify-self: start; }
+}
 
 #theme,
 #fullscreen {
@@ -76,7 +87,7 @@ body, .stage, .gml-transport .rail, .gml-transport .fill {
   flex-wrap: wrap;
   justify-content: center;
   gap: 8px;
-  margin: 16px 0 0;
+  margin: 0;
   font: 600 16px/1.4 var(--sans);
 }
 .renderers a {
