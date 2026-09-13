@@ -23,6 +23,8 @@ body { background: var(--paper); color: var(--ink); }
 a { color: var(--ink); text-underline-offset: 3px; text-decoration-thickness: 1px; }
 a:hover { text-decoration-color: var(--mute); }
 :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.skip-link { position: fixed; top: 8px; left: 8px; z-index: 5; padding: 8px 12px; background: var(--paper); transform: translateY(calc(-100% - 12px)); }
+.skip-link:focus { transform: none; }
 
 body, .stage, .gml-transport .rail, .gml-transport .fill {
   transition: background-color .2s ease, border-color .2s ease, color .2s ease;
@@ -37,12 +39,16 @@ body, .stage, .gml-transport .rail, .gml-transport .fill {
 @media (min-width: 1000px) {
   .mode-row {
     grid-template-columns: minmax(0, 1fr) var(--stage, 560px) minmax(0, 1fr);
-    gap: 0 24px;
+    gap: 8px 24px;
     align-items: center;
   }
   .mode-row .renderers { grid-column: 2; }
-  .mode-row .topbar { grid-column: 3; justify-self: start; }
+  .mode-row .topbar { grid-column: 3; grid-row: 1; justify-self: start; }
+  .mode-row .mode-description { grid-column: 2; }
 }
+
+.mode-description { margin: 0; color: var(--mute); font: 400 13px/1.5 var(--sans); }
+.mode-description a { color: inherit; }
 
 #theme,
 #fullscreen {

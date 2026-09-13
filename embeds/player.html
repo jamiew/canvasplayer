@@ -3,6 +3,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>canvasplayer: Full player</title>
+<meta name="description" content="Play and scrub a GML graffiti drawing, change its ink style, and try drawing effects.">
+<meta name="robots" content="noindex,follow">
 <script src="../theme.js"></script>
 <link rel="stylesheet" href="../gml-ui.css">
 <link rel="stylesheet" href="../site.css">
@@ -14,6 +16,7 @@
   .stage canvas { position: absolute; inset: 0; display: block; }
   #transport, #switches { margin-top: 12px; }
 </style>
+<main>
 <h1>Full player</h1>
 <div id="mount">
   <div class="stage"><canvas aria-label="Graffiti drawing" role="img"></canvas></div>
@@ -23,6 +26,7 @@
 <p id="status" role="status">Loading tag</p>
 <button id="remove" type="button" disabled>Remove player</button>
 <p id="data" hidden>Data: <a></a>.</p>
+</main>
 <script type="module">
   import { parse, GmlPlayer } from '../gml-player.js';
   import { transport, switches } from '../gml-ui.js';

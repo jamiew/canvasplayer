@@ -3,6 +3,20 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>canvasplayer: Embed options</title>
+<meta name="description" content="Add a GML graffiti animation, full player, or static drawing to your site. Copy an iframe snippet or host the files yourself.">
+<link rel="canonical" href="https://jamiew.github.io/canvasplayer/embeds/">
+<meta property="og:title" content="canvasplayer: Embed options">
+<meta property="og:description" content="Embed a graffiti animation, full player, or static drawing. Copy a snippet or host the files yourself.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://jamiew.github.io/canvasplayer/embeds/">
+<meta property="og:site_name" content="canvasplayer">
+<meta property="og:image" content="https://jamiew.github.io/canvasplayer/header.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1600">
+<meta property="og:image:height" content="893">
+<meta property="og:image:alt" content="canvasplayer beside a white graffiti drawing with drips and motion data on black.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image:alt" content="canvasplayer beside a white graffiti drawing with drips and motion data on black.">
 <script src="../theme.js"></script>
 <link rel="stylesheet" href="../site.css">
 <style>
@@ -39,6 +53,7 @@
     .embed-copy { grid-row: 1; }
   }
 </style>
+<a class="skip-link" href="#examples">Skip to embed examples</a>
 <header class="masthead">
   <h1><a href="../">canvasplayer</a></h1>
   <p class="tagline">
@@ -47,6 +62,7 @@
   </p>
   <div class="mode-row">
   <nav class="renderers" aria-label="Player mode"><a href="../?renderer=canvas">Canvas (2D)</a><a href="../?renderer=webgl">Threejs/WebGL (3D)</a><a href="./" aria-current="page">Embed player</a></nav>
+  <p class="mode-description">Embed <a href="#animation-heading">animation</a>, a <a href="#player-heading">full player</a>, or a <a href="#drawing-heading">static drawing</a> on your site.</p>
 <div class="topbar">
   <button id="theme" type="button" aria-label="Switch to dark theme">
     <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -62,7 +78,7 @@
 </div>
   </div>
 </header>
-<main>
+<main id="examples" tabindex="-1">
   <div class="intro">
     <h2>Embed options</h2>
     <p>Three ways to show <a href="https://000000book.com/data/161">Katsu #161</a>.

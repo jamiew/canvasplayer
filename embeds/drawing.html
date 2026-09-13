@@ -3,6 +3,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>canvasplayer: Static drawing</title>
+<meta name="description" content="A finished GML graffiti drawing rendered once, without an animation loop.">
+<meta name="robots" content="noindex,follow">
 <script src="../theme.js"></script>
 <link rel="stylesheet" href="../site.css">
 <style>
@@ -10,12 +12,14 @@
   h1 { font-size: 22px; }
   canvas { display: block; width: 100%; height: auto; background: #000; }
 </style>
+<main>
 <h1>Static drawing</h1>
 <p>Parse, prepare and paint without a player or animation loop.</p>
 <canvas aria-label="Graffiti drawing" role="img"></canvas>
 <p id="status" role="status">Loading tag</p>
 <p id="data" hidden>Data: <a></a>.</p>
 <p>See <a id="player-link" href="./player.html">player</a> and <a href="./">embed options</a>.</p>
+</main>
 <script type="module">
   import { parse, prepare, paint } from '../gml-player.js';
   import { loadEmbedTag } from '../load-tag.js';

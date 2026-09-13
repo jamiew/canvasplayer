@@ -8,7 +8,8 @@ at the speed of the hand. No dependencies or build step.
 
 [2D demo](https://jamiew.github.io/canvasplayer/?renderer=canvas) ·
 [WebGL demo](https://jamiew.github.io/canvasplayer/?renderer=webgl) ·
-[Embed options](https://jamiew.github.io/canvasplayer/embeds/)
+[Embed options](https://jamiew.github.io/canvasplayer/embeds/) ·
+[AI guide](https://jamiew.github.io/canvasplayer/llms.txt)
 
 ## Install and use
 

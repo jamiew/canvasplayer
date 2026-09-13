@@ -8,12 +8,21 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>canvasplayer: GML playback on &lt;canvas&gt;</title>
-  <meta name="description" content="Graffiti Markup Language playback on canvas.">
-  <meta property="og:title" content="canvasplayer: GML playback on <canvas>">
-  <meta property="og:description" content="Graffiti Markup Language playback on canvas.">
+  <title>canvasplayer: 2D and 3D graffiti playback</title>
+  <meta name="description" content="Play Graffiti Markup Language (GML) drawings in 2D or 3D. Try ink effects, explore tags, and embed a player or static drawing on your site.">
+  <link rel="canonical" href="https://jamiew.github.io/canvasplayer/">
+  <meta property="og:title" content="canvasplayer: 2D and 3D graffiti playback">
+  <meta property="og:description" content="Play GML drawings in 2D or 3D with ink effects, dust trails, and embeds for your site.">
   <meta property="og:type" content="website">
-  <meta name="twitter:card" content="summary">
+  <meta property="og:url" content="https://jamiew.github.io/canvasplayer/">
+  <meta property="og:site_name" content="canvasplayer">
+  <meta property="og:image" content="https://jamiew.github.io/canvasplayer/header.jpg">
+  <meta property="og:image:type" content="image/jpeg">
+  <meta property="og:image:width" content="1600">
+  <meta property="og:image:height" content="893">
+  <meta property="og:image:alt" content="canvasplayer beside a white graffiti drawing with drips and motion data on black.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:image:alt" content="canvasplayer beside a white graffiti drawing with drips and motion data on black.">
   <script src="theme.js"></script>
 
   <!-- Before the page styles, so the page can override the controls. -->
@@ -46,6 +55,7 @@
     :root[data-fullscreen] body { max-width: none; padding: 0; height: 100vh; overflow: hidden; background: #000; }
     :root[data-fullscreen] .masthead > :not(.mode-row),
     :root[data-fullscreen] .mode-row .renderers,
+    :root[data-fullscreen] .mode-description,
     :root[data-fullscreen] #theme,
     :root[data-fullscreen] #index,
     :root[data-fullscreen] #readout,
@@ -242,6 +252,7 @@
   </style>
 </head>
 <body>
+  <a class="skip-link" href="#player">Skip to player</a>
 
   <header class="masthead">
     <h1><a href="./">canvasplayer</a></h1>
@@ -252,6 +263,8 @@
     </p>
     <div class="mode-row">
     <nav class="renderers" aria-label="Player mode"><a href="?renderer=canvas" data-renderer="canvas">Canvas (2D)</a><a href="?renderer=webgl" data-renderer="webgl">Threejs/WebGL (3D)</a><a href="./embeds/">Embed player</a></nav>
+    <p class="mode-description" data-description="canvas">Simple 2D drawing with <a href="https://github.com/jamiew/canvasplayer#drawing-options">ink styles and effects</a>.</p>
+    <p class="mode-description" data-description="webgl" hidden>3D playback in the style of Evan Roth’s <a href="https://fffff.at/graffiti-analysis-2-0-official-launch/">Dust Tag</a> / <a href="https://www.evan-roth.com/~/works/graffiti-analysis/">Graffiti Analysis</a>.</p>
   <div class="topbar">
     <button id="fullscreen" type="button" aria-label="Fill the window" aria-pressed="false">
       <svg class="grow" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -280,7 +293,7 @@
   </header>
 
   <div class="layout">
-    <nav id="index">
+    <nav id="index" aria-label="Example tags">
       <div class="eyebrow">Example tags</div>
       <ul>
         <li><a href="?id=161" id="link-161">Katsu <span class="num">#161</span></a></li>
@@ -297,16 +310,16 @@
       <footer>More tags: <a href="https://000000book.com">000000book.com</a></footer>
     </nav>
 
-    <div class="deck">
+    <main class="deck" id="player" tabindex="-1">
       <div class="stage">
-        <canvas id="canvas"></canvas>
+        <canvas id="canvas" role="img" aria-label="Graffiti drawing" aria-describedby="readout"></canvas>
         <div class="status" id="status" role="status">Loading</div>
       </div>
       <div class="transport" id="transport"></div>
       <div id="readout">&mdash;</div>
-    </div>
+    </main>
 
-    <div class="switches" id="switches"></div>
+    <aside class="switches" id="switches" aria-label="Drawing settings"></aside>
   </div>
 
   <footer class="page">
@@ -355,6 +368,9 @@
     document.querySelectorAll('.renderers a[data-renderer]').forEach(a => {
       if (a.dataset.renderer === renderer) a.setAttribute('aria-current', 'page');
     });
+    document.querySelectorAll('[data-description]').forEach(description => {
+      description.hidden = description.dataset.description !== renderer;
+    });
 
     // Reuse the player and controls so tag changes preserve settings.
     transport(player, document.getElementById('transport'));
@@ -398,6 +414,7 @@
       player.pause().load(data);
 
       const tag = player.tag;
+      canvas.setAttribute('aria-label', 'Graffiti drawing from tag ' + tag.id);
       // Use text nodes: tag metadata comes from untrusted uploads.
       readout.replaceChildren();
       const part = (text, el) => {

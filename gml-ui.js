@@ -96,12 +96,16 @@ export function transport(player, host) {
     if (!scrubbing) scrub.value = Math.round(at * 1000);
     fill.style.width = (at * 100).toFixed(2) + '%';
     clockValue.textContent = secs(time) + ' / ' + secs(s.duration);
+    scrub.setAttribute('aria-valuetext', time.toFixed(1) + ' of ' + s.duration.toFixed(1) + ' seconds');
   };
   const state = s => {
     play.toggleAttribute('data-playing', s.playing);
     play.setAttribute('aria-label', s.playing ? 'Pause' : 'Play');
   };
-  const config = () => { rateValue.textContent = player.opts.speed + '×'; };
+  const config = () => {
+    rateValue.textContent = player.opts.speed + '×';
+    rate.setAttribute('aria-label', 'Playback speed: ' + player.opts.speed + '×');
+  };
   player.on('frame', frame);
   player.on('state', state);
   player.on('config', config);

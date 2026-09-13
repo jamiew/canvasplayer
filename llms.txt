@@ -1,0 +1,22 @@
+# canvasplayer
+
+> A browser player for Graffiti Markup Language (GML). It draws graffiti in 2D or 3D and provides embed examples. Public domain.
+
+## Documentation
+
+- [Getting started](https://github.com/jamiew/canvasplayer#install-and-use): Install and play a tag.
+- [API](https://github.com/jamiew/canvasplayer#api): Modules, methods, events, and tag format.
+- [Drawing options](https://github.com/jamiew/canvasplayer#drawing-options): Ink styles, effects, and data overlays.
+- [WebGL](https://github.com/jamiew/canvasplayer#optional-webgl): Pass your own Three.js instance to ThreePlayer.
+- [Embeds](https://jamiew.github.io/canvasplayer/embeds/): Animation, full player, and static drawing snippets.
+- [Source](https://github.com/jamiew/canvasplayer): Code and tests.
+
+## Basics
+
+- No build step. The 2D player has no dependencies. WebGL needs Three.js as an optional peer.
+- Pass a parsed tag to GmlPlayer or ThreePlayer. Pass a prepared tag to paint for a static drawing.
+- gml.js handles data without a DOM or canvas. gml-ui.js provides controls for either renderer.
+- Serve the files over HTTP or HTTPS. Browser modules do not load from file URLs.
+- Call destroy when removing a player. Dispose of its controls too.
+
+Public domain, Jamie Wilkinson & Free Art & Technology (F.A.T.) Lab. No rights reserved.

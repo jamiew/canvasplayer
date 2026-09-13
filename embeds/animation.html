@@ -3,8 +3,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>canvasplayer: Animation</title>
+<meta name="description" content="A looping GML graffiti drawing. Reduced motion shows the finished tag instead.">
+<meta name="robots" content="noindex,follow">
 <style>
-  html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #000; }
+  html, body, main { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #000; }
   .stage { width: 100%; height: 100%; }
   canvas { display: block; }
   #status {
@@ -14,8 +16,10 @@
   }
   #status[hidden] { display: none; }
 </style>
+<main>
 <div class="stage"><canvas aria-label="Graffiti drawing" role="img"></canvas></div>
 <p id="status" role="status">Loading tag</p>
+</main>
 <script type="module">
   import { parse, GmlPlayer } from '../gml-player.js';
   import { loadEmbedTag } from '../load-tag.js';

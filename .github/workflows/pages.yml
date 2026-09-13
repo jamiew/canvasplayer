@@ -27,6 +27,19 @@ jobs:
 
       - run: npm test
 
+      # Pages caches CSS separately from HTML. Version the URL to keep them in sync.
+      - name: Version shared stylesheet
+        run: |
+          node --input-type=module <<'NODE'
+          import { createHash } from 'node:crypto';
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const version = createHash('sha256').update(readFileSync('site.css')).digest('hex').slice(0, 12);
+          for (const file of ['index.html', 'embeds/index.html', 'embeds/player.html', 'embeds/drawing.html']) {
+            const html = readFileSync(file, 'utf8');
+            writeFileSync(file, html.replace(/(href="(?:\.\.\/)?site\.css)(?:\?[^"]*)?"/g, `$1?v=${version}"`));
+          }
+          NODE
+
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
