@@ -6,15 +6,15 @@
  * Each particle trails a line to its starting point.
  *
  * Based on Evan Roth's ga4-3d-player fork of canvasplayer.
- * Its look, field and settings inform this renderer.
- * Shared gml.js preparation repairs timing and orientation.
+ * Its ribbons and dust follow the fork's 60 Hz playback.
+ * Capture orientation is corrected, but sample timestamps are preserved.
  * Checking capture orientation avoids the fork's sideways rendering of #147.
  *
  * Public domain, Jamie Wilkinson & Free Art & Technology (F.A.T.) Lab.
  * No rights reserved.
  */
 
-import { prepare, clamp } from './gml.js';
+import { clamp } from './gml.js';
 
 export const DEFAULTS = {
   // Front-to-back depth as a multiple of the tag's size.
@@ -66,8 +66,8 @@ export const DEFAULTS = {
   speed: 1
 };
 
-// Four Catmull-Rom samples per segment, as in the fork. Clamp the end
-// controls to keep both endpoints; linear time cannot overshoot repaired time.
+// Keep the fork's endpoint selection and cubic time as well as its curves.
+// Extra endpoint samples change the fitted bounds, widths and dust impulses.
 function smooth(points) {
   if (points.length < 4) return points;
   const out = [];
@@ -76,13 +76,13 @@ function smooth(points) {
     return 0.5 * (2 * b + (c - a) * t + (2 * a - 5 * b + 4 * c - d) * t2
       + (-a + 3 * b - 3 * c + d) * t3);
   };
-  for (let i = 0; i < points.length - 1; i++) {
-    const a = points[Math.max(0, i - 1)], b = points[i];
-    const c = points[i + 1], d = points[Math.min(points.length - 1, i + 2)];
+  for (let i = 1; i < points.length - 2; i++) {
+    const a = points[i - 1], b = points[i];
+    const c = points[i + 1], d = points[i + 2];
     for (let j = 0; j < 4; j++) {
       const t = j / 4;
       out.push([cr(a[0], b[0], c[0], d[0], t), cr(a[1], b[1], c[1], d[1], t),
-        b[2] + (c[2] - b[2]) * t]);
+        cr(a[2], b[2], c[2], d[2], t)]);
     }
   }
   out.push(points[points.length - 1]);
@@ -92,11 +92,11 @@ function smooth(points) {
 /*
  * Play a parsed tag on a WebGL canvas. Pass a tag now or call load() later.
  * Size the canvas's parent to set its dimensions.
- * Events: 'load' with the prepared tag, 'frame' with { time, duration }.
+ * Events: 'load' with the loaded tag, 'frame' with { time, duration }.
  */
 export class ThreePlayer {
   /*
-   * Pass your three.js copy as `THREE`. Only preparation is shared with 2D.
+   * Pass your three.js copy as `THREE`. Both renderers take parsed tags.
    *
    *   import * as THREE from 'three';
    *   const player = new ThreePlayer(THREE, canvas, tag);
@@ -124,7 +124,6 @@ export class ThreePlayer {
     };
 
     this.camera3 = { yaw: 0, pitch: 0, dist: this.opts.dist };
-    this.cameraDistanceScale = 1;
     this.dragging = false;
 
     this.renderer = new this.THREE.WebGLRenderer({ canvas, antialias: true });
@@ -171,16 +170,28 @@ export class ThreePlayer {
   load(tag) {
     if (this.destroyed) return this;
     this.clear();
-    this.tag = prepare(tag, this.opts);
-    this.paths = this.tag.strokes.map(stroke => smooth(stroke.points));
+    // Timing repairs belong to 2D. In 3D, time also determines the surface's
+    // depth and when dust wakes, so rebasing it changes the drawing.
+    const rotate = !!(tag && tag.rotate);
+    const strokes = ((tag && tag.strokes) || []).map(stroke => ({
+      points: ((stroke && stroke.points) || []).map(([x, y, t]) =>
+        rotate ? [y, 1 - x, t] : [x, y, t])
+    })).filter(stroke => stroke.points.length);
+    this.paths = strokes.map(stroke => smooth(stroke.points));
 
     // Fit the smoothed path, including any curve beyond the captured bounds.
-    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-    for (const points of this.paths) for (const [x, y] of points) {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, duration = 0.001;
+    for (const points of this.paths) for (const [x, y, t] of points) {
       x0 = Math.min(x0, x); y0 = Math.min(y0, y);
       x1 = Math.max(x1, x); y1 = Math.max(y1, y);
+      duration = Math.max(duration, t);
     }
-    if (!this.paths.length) ({ x0, y0, x1, y1 } = this.tag.bounds);
+    if (!this.paths.length) { x0 = y0 = 0; x1 = y1 = 1; }
+    this.tag = {
+      id: (tag && tag.id) || null, app: (tag && tag.app) || null, rotate,
+      strokes, bounds: { x0, y0, x1, y1 }, duration,
+      pointCount: strokes.reduce((n, stroke) => n + stroke.points.length, 0)
+    };
     this.cx = (x0 + x1) / 2;
     this.cy = (y0 + y1) / 2;
     this.size = Math.max(x1 - x0, y1 - y0, 1e-3);
@@ -190,6 +201,7 @@ export class ThreePlayer {
     this.stage = { x0: this.cx - half, y0: this.cy - half, side: half * 2 };
 
     this.elapsed = 0;
+    this.simulationRemainder = 0;
     this.last = null;
     this.buildStrokes();
     this.buildDust();
@@ -223,11 +235,7 @@ export class ThreePlayer {
     this.dots = this.trails = null;
   }
 
-  /*
-   * Cache the fork's smooth, distance-shaped ribbon in world space.
-   * An extra vertex on each triangle diagonal lets the leading edge clip
-   * the original triangles, rather than bend already drawn ink.
-   */
+  // Cache the fork's ribbon. Only its index draw range changes during playback.
   buildStrokes() {
     const { opts } = this;
     this.paths.forEach(pts => {
@@ -235,7 +243,7 @@ export class ThreePlayer {
       if (!n) return;
 
       const world = pts.map(p => this.world(p[0], p[1], p[2]));
-      const positions = new Float32Array(n === 1 ? 12 : n * 6 + (n - 1) * 3);
+      const positions = new Float32Array(n === 1 ? 12 : n * 6);
       const distances = world.map((p, i) => i
         ? Math.hypot(p[0] - world[i - 1][0], p[1] - world[i - 1][1]) : 0);
       // A single fast jump must not flatten every other sample to full width.
@@ -250,12 +258,13 @@ export class ThreePlayer {
         const dy = c[1] - a[1];
         const len = Math.hypot(dx, dy) || 1;
         // The normal stays in xy. Sample time supplies z.
-        const px = dx || dy ? -dy / len : 1;
+        const px = -dy / len;
         const py = dx / len;
 
         let taper = 1;
         if (opts.taper > 1) {
-          taper = Math.pow(Math.min(1, i / (opts.taper - 1), (n - 1 - i) / (opts.taper - 1)), 1.1);
+          if (i < opts.taper) taper = Math.pow(i / (opts.taper - 1), 1.1);
+          if (i > n - opts.taper) taper = Math.pow((n - 1 - i) / (opts.taper - 1), 1.1);
         }
         const speed = clamp(distances[i] / reference, 0, 1);
         const hw = Math.max(0.04 * (1 - speed * 0.92) * taper, 0.002) * widthScale;
@@ -283,10 +292,7 @@ export class ThreePlayer {
         const r0 = l0 + 1;
         const l1 = l0 + 2;
         const r1 = l0 + 3;
-        const diagonal = n * 2 + i;
-        positions.set(positions.subarray((i + 1) * 6, (i + 1) * 6 + 3), diagonal * 3);
-        // At a complete segment the middle triangle collapses to zero area.
-        index.push(l0, r0, diagonal, l0, diagonal, l1, r0, r1, diagonal);
+        index.push(l0, r0, l1, r0, r1, l1);
       }
 
       const geo = new this.THREE.BufferGeometry();
@@ -298,7 +304,11 @@ export class ThreePlayer {
       const mesh = new this.THREE.Mesh(geo, mat);
       mesh.frustumCulled = false;
       this.scene.add(mesh);
-      this.meshes.push({ mesh, pts, original: positions.slice(), edge: -1 });
+      // Cubic timestamps can run backward. Prefix maxima preserve the fork's
+      // first-future-sample stopping rule while allowing binary searches.
+      const times = new Float64Array(n);
+      for (let i = 0; i < n; i++) times[i] = Math.max(i ? times[i - 1] : -Infinity, pts[i][2]);
+      this.meshes.push({ mesh, pts, times });
     });
   }
 
@@ -372,11 +382,7 @@ export class ThreePlayer {
     P.wokeAt.fill(0);
     this.field.x.fill(0);
     this.field.y.fill(0);
-    this.injectLastStroke = -1;
-    this.headStroke = 0;
-    this.headPoint = 1;
-    this.simulationTime = this.elapsed;
-    this.simulationRemainder = 0;
+    this.hasInjected = false;
     // Upload the reset field so load() and seek() cannot draw stale buffers.
     // Fresh geometry draws everything by default, placing 15,552 untouched
     // particles at the origin unless we also narrow the draw range.
@@ -385,9 +391,9 @@ export class ThreePlayer {
 
   // The fork calibrates head motion in grid cells, then applies the field
   // directly to capture-space velocity. Removing cell size kills its flight.
-  inject(x, y, stroke) {
-    if (stroke !== this.injectLastStroke) {
-      this.injectLastStroke = stroke;
+  inject(x, y) {
+    if (!this.hasInjected) {
+      this.hasInjected = true;
       this.injectLastX = x;
       this.injectLastY = y;
       return;
@@ -396,20 +402,22 @@ export class ThreePlayer {
     const dy = y - this.injectLastY;
     this.injectLastX = x;
     this.injectLastY = y;
-    if (dx === 0 && dy === 0) return;
+    if (Math.abs(dx) < 1e-6 && Math.abs(dy) < 1e-6) return;
 
     const { opts, field } = this;
     const cx = (x - this.stage.x0) / this.cw;
     const cy = (y - this.stage.y0) / this.ch;
     const vx = dx / this.cw * opts.injectScale;
     const vy = dy / this.ch * opts.injectScale;
-    const R = opts.injectRadius;
+    const R = opts.injectRadius, radiusSquared = R * R;
+    const iMin = Math.max(0, (cx - R) | 0), iMax = Math.min(this.cols - 1, (cx + R) | 0);
+    const jMin = Math.max(0, (cy - R) | 0), jMax = Math.min(this.rows - 1, (cy + R) | 0);
 
-    for (let j = Math.max(0, Math.floor(cy - R)); j <= Math.min(this.rows - 1, Math.ceil(cy + R)); j++) {
-      for (let i = Math.max(0, Math.floor(cx - R)); i <= Math.min(this.cols - 1, Math.ceil(cx + R)); i++) {
-        const d = Math.hypot(i - cx, j - cy);
-        if (d >= R) continue;
-        const w = opts.injectStrength * (1 - d / R);
+    for (let j = jMin; j <= jMax; j++) {
+      for (let i = iMin; i <= iMax; i++) {
+        const d2 = (i - cx) * (i - cx) + (j - cy) * (j - cy);
+        if (d2 >= radiusSquared) continue;
+        const w = opts.injectStrength * (1 - Math.sqrt(d2) / R);
         const k = j * this.cols + i;
         field.x[k] += vx * w;
         field.y[k] += vy * w;
@@ -417,63 +425,52 @@ export class ThreePlayer {
     }
   }
 
-  // Visit every crossed segment, not just the stroke under the display
-  // frame. A short stroke or its final sample must not disappear at 30 Hz.
-  injectBetween(from, to) {
-    const strokes = this.paths;
-    while (this.headStroke < strokes.length) {
-      const pts = strokes[this.headStroke];
-      if (pts[0][2] > to) break;
-      while (this.headPoint < pts.length) {
-        const a = pts[this.headPoint - 1];
-        const b = pts[this.headPoint];
-        if (a[2] > to) break;
-        if (b[2] >= from) {
-          const span = b[2] - a[2];
-          const start = span > 0 ? clamp((from - a[2]) / span, 0, 1) : 0;
-          const end = span > 0 ? clamp((to - a[2]) / span, 0, 1) : 1;
-          this.inject(a[0] + (b[0] - a[0]) * start, a[1] + (b[1] - a[1]) * start, this.headStroke);
-          this.inject(a[0] + (b[0] - a[0]) * end, a[1] + (b[1] - a[1]) * end, this.headStroke);
-        }
-        if (b[2] > to) break;
-        this.headPoint++;
+  // Sample the preceding captured head once per tick. Keeping the previous
+  // position across pen-up travel preserves the fork's between-stroke kicks.
+  injectHead(head) {
+    for (let si = this.meshes.length - 1; si >= 0; si--) {
+      const { pts, times } = this.meshes[si];
+      if (pts[0][2] > head || head > pts[pts.length - 1][2]) continue;
+      let lo = 1, hi = pts.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >>> 1;
+        if (times[mid] < head) lo = mid + 1;
+        else hi = mid;
       }
-      if (this.headPoint < pts.length) break;
-      this.headStroke++;
-      this.headPoint = 1;
+      const point = pts[lo - 1];
+      this.inject(point[0], point[1]);
+      break;
     }
   }
 
   stepDust(dt, head, falling) {
     const { P, field, opts } = this;
     const drag = Math.min(1, opts.friction * dt);
-    const push = opts.reactivity * dt;
     const g = falling ? opts.gravity * dt : 0;
-    const decay = Math.pow(opts.fieldDecay, dt * 60);
 
     for (let k = 0; k < P.n; k++) {
+      if (!P.woke[k] && (P.posX[k] !== P.oriX[k] || P.posY[k] !== P.oriY[k])) {
+        P.woke[k] = 1;
+        P.wokeAt[k] = head;
+      }
       let ci = ((P.posX[k] - this.stage.x0) / this.cw) | 0;
       let cj = ((P.posY[k] - this.stage.y0) / this.ch) | 0;
       ci = ci < 0 ? 0 : ci >= this.cols ? this.cols - 1 : ci;
       cj = cj < 0 ? 0 : cj >= this.rows ? this.rows - 1 : cj;
       const c = cj * this.cols + ci;
 
-      P.velX[k] += field.x[c] * push;
-      P.velY[k] += field.y[c] * push;
+      P.velX[k] += field.x[c] * opts.reactivity * dt;
+      P.velY[k] += field.y[c] * opts.reactivity * dt;
       if (g && P.woke[k]) P.velY[k] += g;
       P.velX[k] -= P.velX[k] * drag;
       P.velY[k] -= P.velY[k] * drag;
       P.posX[k] += P.velX[k] * dt;
       P.posY[k] += P.velY[k] * dt;
-      if (!P.woke[k] && (P.posX[k] !== P.oriX[k] || P.posY[k] !== P.oriY[k])) {
-        P.woke[k] = 1;
-        P.wokeAt[k] = head;
-      }
     }
 
     for (let k = 0; k < field.x.length; k++) {
-      field.x[k] *= decay;
-      field.y[k] *= decay;
+      field.x[k] *= opts.fieldDecay;
+      field.y[k] *= opts.fieldDecay;
     }
   }
 
@@ -526,11 +523,6 @@ export class ThreePlayer {
     // size from the DPR-scaled drawing buffer and grows on every resize.
     this.renderer.setSize(w, h);
     this.camera.aspect = w / h;
-    // Keep the enclosing sphere visible when width limits the field of view.
-    // Adjust distance separately to preserve orbit and zoom across resizes.
-    const halfFov = this.camera.fov * Math.PI / 360;
-    const limitingFov = Math.atan(Math.tan(halfFov) * Math.min(1, this.camera.aspect));
-    this.cameraDistanceScale = Math.sin(halfFov) / Math.sin(limitingFov);
     this.camera.updateProjectionMatrix();
     this.render();
     return this;
@@ -545,50 +537,14 @@ export class ThreePlayer {
 
     // Reveal each stroke up to the head.
     this.meshes.forEach(m => {
-      const { pts, original, mesh } = m;
-      const position = mesh.geometry.attributes.position;
-      // Upper bound consumes equal-time samples together, without dividing
-      // by a zero-duration segment or leaving its endpoint unrevealed.
+      const { pts, times, mesh } = m;
       let lo = 0, hi = pts.length;
       while (lo < hi) {
         const mid = (lo + hi) >>> 1;
-        if (pts[mid][2] <= head) lo = mid + 1;
+        if (times[mid] <= head) lo = mid + 1;
         else hi = mid;
       }
-      if (pts.length === 1) {
-        mesh.geometry.setDrawRange(0, lo ? 6 : 0);
-        return;
-      }
-      // Clip the leading pair and the original diagonal at the same time.
-      // Restore the previous segment unless this frame will overwrite it.
-      const edge = lo > 0 && lo < pts.length ? lo : -1;
-      if (m.edge >= 0 && m.edge !== edge) {
-        const offset = m.edge * 6;
-        for (let k = 0; k < 6; k++) position.array[offset + k] = original[offset + k];
-        position.addUpdateRange(offset, 6);
-        position.needsUpdate = true;
-        const diagonal = pts.length * 6 + (m.edge - 1) * 3;
-        for (let k = 0; k < 3; k++) position.array[diagonal + k] = original[diagonal + k];
-        position.addUpdateRange(diagonal, 3);
-      }
-      if (edge >= 0) {
-        const fraction = (head - pts[edge - 1][2]) / (pts[edge][2] - pts[edge - 1][2]);
-        const offset = edge * 6;
-        for (let k = 0; k < 6; k++) {
-          const start = original[offset - 6 + k];
-          position.array[offset + k] = start + (original[offset + k] - start) * fraction;
-        }
-        position.addUpdateRange(offset, 6);
-        position.needsUpdate = true;
-        const diagonal = pts.length * 6 + (edge - 1) * 3;
-        for (let k = 0; k < 3; k++) {
-          const start = original[offset - 3 + k];
-          position.array[diagonal + k] = start + (original[offset + k] - start) * fraction;
-        }
-        position.addUpdateRange(diagonal, 3);
-      }
-      m.edge = edge;
-      mesh.geometry.setDrawRange(0, lo ? Math.min(lo, pts.length - 1) * 9 : 0);
+      mesh.geometry.setDrawRange(0, pts.length === 1 ? (lo ? 6 : 0) : Math.max(0, lo - 1) * 6);
     });
 
     const fade = this.elapsed > holdEnd
@@ -602,7 +558,7 @@ export class ThreePlayer {
 
     const c = this.camera3;
     const ce = Math.cos(c.pitch);
-    const distance = c.dist * this.cameraDistanceScale;
+    const distance = c.dist;
     this.camera.position.set(
       distance * ce * Math.sin(c.yaw),
       distance * Math.sin(c.pitch),
@@ -621,35 +577,28 @@ export class ThreePlayer {
     const dur = this.tag.duration;
     const holdEnd = dur + opts.holdSec;
     const loopEnd = holdEnd + opts.fadeSec;
-
-    this.elapsed += dt;
     if (!this.dragging && this.effects['auto-rotate']) this.camera3.yaw += opts.autoRotate * dt;
-    // Hidden dust does not need a simulation. Re-enabling starts at the current head.
-    if (!this.effects.dust) {
-      if (this.elapsed >= loopEnd) this.elapsed %= loopEnd;
-      return this;
-    }
-    // Reset before drawing. Resetting after flashed the finished tag at full opacity.
-    if (this.elapsed >= loopEnd) {
-      this.elapsed %= loopEnd;
-      this.resetDust();
-      this.simulationTime = 0;
-      this.simulationRemainder = this.elapsed;
-    } else {
-      this.simulationRemainder += dt;
-    }
 
-    // Fixed tag-time steps make 30/60/120 Hz run the same field.
-    const fixed = 1 / 120;
+    // Use the fork's 60 Hz physics at every display rate. The drawing clock
+    // shares these ticks so head sampling and loop resets cannot drift.
+    const fixed = 1 / 60;
+    this.simulationRemainder += dt;
     const steps = Math.floor((this.simulationRemainder + 1e-10) / fixed);
-    for (let i = 0; i < steps; i++) {
-      const next = this.simulationTime + fixed;
-      this.injectBetween(this.simulationTime, next);
-      this.stepDust(fixed, Math.min(next, dur), next > holdEnd);
-      this.simulationTime = next;
-    }
     this.simulationRemainder = Math.max(0, this.simulationRemainder - steps * fixed);
-    if (steps) this.uploadDust();
+    for (let i = 0; i < steps; i++) {
+      this.elapsed += fixed;
+      // Reset before drawing. Resetting after flashed the finished tag at full opacity.
+      // Discard this tick's overshoot, as in the fork, not the remaining ticks.
+      if (this.elapsed > loopEnd) {
+        this.elapsed = 0;
+        this.resetDust();
+      }
+      if (!this.effects.dust) continue;
+      const head = Math.min(this.elapsed, dur);
+      if (this.elapsed <= dur) this.injectHead(head);
+      this.stepDust(fixed, head, this.elapsed > holdEnd);
+    }
+    if (steps && this.effects.dust) this.uploadDust();
     return this;
   }
 
@@ -661,7 +610,7 @@ export class ThreePlayer {
       if (!this.playing) return;
       // Cap background-tab gaps. Applying a whole gap injected every crossed
       // stroke at once and blew dust off the tag when the tab returned.
-      const dt = this.last === null ? 0 : clamp((ts - this.last) / 1000, 0, 0.1);
+      const dt = this.last === null ? 1 / 60 : clamp((ts - this.last) / 1000, 0, 0.05);
       this.last = ts;
       this.step(dt * this.opts.speed).render();
       if (this.playing) this.raf = requestAnimationFrame(frame);
@@ -701,6 +650,7 @@ export class ThreePlayer {
   seek(t) {
     if (this.destroyed) return this;
     this.elapsed = clamp(t, 0, this.tag.duration);
+    this.simulationRemainder = 0;
     this.last = null;
     this.resetDust();
     return this.render();

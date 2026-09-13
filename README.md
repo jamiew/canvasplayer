@@ -74,8 +74,9 @@ based on [Evan Roth's 3D fork](https://github.com/evanroth/canvasplayer/tree/ga4
 Drag to orbit; scroll to zoom. Tested with three.js r160. Use a fresh canvas
 when changing renderers. A canvas cannot switch context types.
 
-This preserves the style, not pixel-identical playback: orientation, timing,
-endpoints, and frame-rate handling differ.
+WebGL keeps the fork's ribbons, timestamps, framing, and dust rules at a fixed
+60 Hz. Capture orientation is still corrected, including #147 and #842.
+Unlike 2D, it does not repair timestamps or shorten pauses.
 
 The shared controls offer `dust` and `auto-rotate`, both on by default.
 Use `player.setEffect(name, on)`. Dust off clears and stops simulation; on follows

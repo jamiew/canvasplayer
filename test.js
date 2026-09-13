@@ -340,18 +340,34 @@ describe('ThreePlayer', () => {
     p.destroy();
   });
 
-  test('smooths corners without losing endpoints or reversing playback time', () => {
-    const points = [[0, 0, 0], [1, 0, 0.1], [1, 1, 0.11], [0, 1, 1]];
-    const p = new ThreePlayer(stubThree(), stubGlCanvas(), { strokes: [{ points }] });
-    const m = p.meshes[0];
-    assert.deepEqual(m.pts[0], points[0]);
-    assert.deepEqual(m.pts.at(-1), points.at(-1));
-    assert.ok(m.pts.some(([x, y]) => x > 1 || y < 0), 'corners follow a curve, not the raw polygon');
-    for (let i = 1; i < m.pts.length; i++) {
-      assert.ok(m.pts[i][2] >= m.pts[i - 1][2], 'the reveal never runs backward');
+  test('keeps raw capture time and corrects orientation without changing the input', () => {
+    const input = { id: 147, app: 'DustTag', rotate: true, strokes: [{
+      points: [[0, 0.125, 4], [0.25, 0.375, 5], [0.5, 0.625, 5], [0.75, 0.875, 24]]
+    }] };
+    const original = structuredClone(input);
+    const p = new ThreePlayer(stubThree(), stubGlCanvas(), input);
+    // The repeated timestamp and long pause remain part of the capture.
+    // Rotate (x, y) to (y, 1 - x), then sample all three coordinates.
+    assert.deepEqual(p.meshes[0].pts, [
+      [0.375, 0.75, 5], [0.4375, 0.6875, 4.625], [0.5, 0.625, 3.875],
+      [0.5625, 0.5625, 3.6875], [0.875, 0.25, 24]
+    ]);
+    assert.equal(p.duration, 24, 'capture pauses are not shortened');
+    assert.deepEqual(input, original, 'loading does not rotate or retime the caller’s data');
+    p.destroy();
+  });
+
+  test('reveals a completed sample prefix even when cubic timestamps run backward', () => {
+    const p = new ThreePlayer(stubThree(), stubGlCanvas(), { strokes: [{
+      points: [[0, 0, 0], [1, 0, 1], [1, 1, 1], [0, 1, 20]]
+    }] });
+    // Cubic sample times are 1, 0.625, -0.125, -0.3125, 20.
+    // Later low timestamps must not bypass the first, still-hidden sample.
+    const geo = p.meshes[0].mesh.geometry;
+    for (const [time, count] of [[0.8, 0], [1, 18], [19, 18], [20, 24], [0.8, 0]]) {
+      p.seek(time);
+      assert.equal(geo.drawRange.count, count, 'completed triangles at ' + time);
     }
-    p.seek(p.duration);
-    assert.ok(m.mesh.geometry.attributes.position.array.every(Number.isFinite));
     p.destroy();
   });
 
@@ -389,48 +405,53 @@ describe('ThreePlayer', () => {
 
   test('re-enabling dust follows the current head without replaying hidden loops', () => {
     const p = build().step(0.4).render();
+    const clock = build().step(0.4);
     p.setEffect('dust', false);
     assert.equal(p.dots.visible, false);
     assert.equal(p.trails.visible, false);
     assert.equal(p.dotGeo.drawRange.count, 0);
-    p.step(p.duration + p.opts.holdSec + p.opts.fadeSec + 0.6).render();
-    assert.ok(near(p.time, 1), 'the drawing keeps looping while dust is off');
+    const hidden = p.duration + p.opts.holdSec + p.opts.fadeSec + 0.6;
+    p.step(hidden).render();
+    clock.step(hidden);
+    assert.equal(p.time, clock.time, 'turning dust off does not change the loop clock');
 
     const fresh = build().seek(p.time);
-    p.setEffect('dust', true).step(1 / 60).render();
-    fresh.step(1 / 60).render();
+    p.setEffect('dust', true);
+    for (let i = 0; i < 20; i++) {
+      p.step(1 / 60);
+      fresh.step(1 / 60);
+    }
+    p.render();
+    fresh.render();
     assert.equal(p.dots.visible, true);
     assert.equal(p.trails.visible, true);
     assert.equal(p.trailGeo.drawRange.count, fresh.trailGeo.drawRange.count);
     const count = fresh.trailGeo.drawRange.count * 3;
+    assert.ok(count > 0, 'new head movement wakes dust after re-enabling');
     assert.deepEqual(p.trailPos.slice(0, count), fresh.trailPos.slice(0, count));
     p.destroy();
     fresh.destroy();
+    clock.destroy();
   });
 
   test('publishes the new frame when a paused player loads another tag', () => {
-    const p = build().seek(1);
+    const p = build().step(0.6).render();
+    assert.ok(p.dotGeo.drawRange.count > 0, 'the old tag has visible dust');
+    p.step(1 / 120);
     const frames = [];
     p.on('frame', frame => frames.push(frame));
     p.load({ strokes: [{ points: [[0, 0, 0], [1, 1, 2]] }] });
     assert.deepEqual(frames, [{ time: 0, duration: 2 }]);
+    assert.equal(p.dotGeo.drawRange.count, 0, 'loading removes the old tag’s dust');
+    p.step(1 / 120);
+    assert.equal(p.time, 0, 'loading discards a partial tick from the old tag');
     p.destroy();
   });
 
-  test('does not stir dust while the pen travels between stationary strokes', () => {
-    const p = new ThreePlayer(stubThree(), stubGlCanvas(), { strokes: [
-      { points: [[0.1, 0.1, 0], [0.1, 0.1, 0.2]] },
-      { points: [[0.9, 0.9, 0.4], [0.9, 0.9, 0.6]] }
-    ] }, { cols: 12, rows: 10 });
-    for (let i = 0; i < 120; i++) p.step(1 / 120);
-    assert.equal(p.dotGeo.drawRange.count, 0, 'pen-up travel must not move particles');
-    p.destroy();
-  });
-
-  test('a sparse stroke moves dust consistently across display refresh rates', () => {
+  test('a sampled moving stroke produces the same dust across display refresh rates', () => {
     const simulate = hz => {
       const p = new ThreePlayer(stubThree(), stubGlCanvas(), {
-        strokes: [{ points: [[0.1, 0.1, 0], [0.9, 0.9, 1]] }]
+        strokes: [{ points: Array.from({ length: 41 }, (_, i) => [0.1 + i / 50, 0.1 + i / 50, i / 40]) }]
       }, { cols: 12, rows: 10 });
       for (let i = 0; i < hz; i++) p.step(1 / hz);
       const result = p.dotPos.slice(0, p.dotGeo.drawRange.count * 3);
@@ -438,7 +459,7 @@ describe('ThreePlayer', () => {
       return result;
     };
     const expected = simulate(120);
-    assert.ok(expected.length > 0, 'a two-point stroke must stir the field');
+    assert.ok(expected.length > 0, 'the moving head must wake particles');
     for (const hz of [30, 60, 144]) {
       const actual = simulate(hz);
       assert.equal(actual.length, expected.length, 'the same particles wake');
@@ -448,7 +469,7 @@ describe('ThreePlayer', () => {
 
   test('moving dust leaves long origin trails that fall with the particles', () => {
     const p = new ThreePlayer(stubThree(), stubGlCanvas(), {
-      strokes: [{ points: [[0, 0, 0], [1, 1, 1]] }]
+      strokes: [{ points: Array.from({ length: 41 }, (_, i) => [i / 40, i / 40, i / 40]) }]
     });
     for (let i = 0; i < 180; i++) p.step(1 / 120);
     const kicked = p.trailPos.slice(0, p.trailGeo.drawRange.count * 3);
@@ -464,16 +485,24 @@ describe('ThreePlayer', () => {
       kicked[farthest + 1] - kicked[farthest + 4]) > 0.1,
     'dust flies away from the ribbon instead of staying as dots on it');
     for (let i = 0; i < 180; i++) p.step(1 / 120);
-    const falling = p.trailPos;
-    assert.ok(falling[farthest + 1] < kicked[farthest + 1], 'awake particles fall in world space');
-    assert.deepEqual(Array.from(falling.slice(farthest + 3, farthest + 6)),
-      Array.from(kicked.slice(farthest + 3, farthest + 6)), 'the trail origin never follows the particle');
+    const falling = p.trailPos.slice(0, p.trailGeo.drawRange.count * 3);
+    let sameParticle = -1;
+    for (let i = 0; i < falling.length; i += 6) {
+      if (falling[i + 3] === kicked[farthest + 3]
+        && falling[i + 4] === kicked[farthest + 4]
+        && falling[i + 5] === kicked[farthest + 5]) {
+        sameParticle = i;
+        break;
+      }
+    }
+    assert.ok(sameParticle >= 0, 'the trail origin never follows the particle');
+    assert.ok(falling[sameParticle + 1] < kicked[farthest + 1], 'awake particles fall in world space');
     p.destroy();
   });
 
   test('revealing and seeking preserve the already drawn ribbon surface', () => {
     const p = new ThreePlayer(stubThree(), stubGlCanvas(), { strokes: [{
-      points: [[0, 0, 0], [1, 0, 1], [1, 1, 2]]
+      points: [[0, 0, 0], [1, 0, 1], [1, 1, 2], [0, 1, 3], [0, 0, 4]]
     }] }, { taper: 1 });
     const triangles = time => {
       p.seek(time);
@@ -485,27 +514,64 @@ describe('ThreePlayer', () => {
       }
       return result;
     };
-    const sub = (a, b) => a.map((v, i) => v - b[i]);
-    const dot = (a, b) => a.reduce((sum, v, i) => sum + v * b[i], 0);
-    const contains = (point, [a, b, c]) => {
-      const u = sub(b, a), v = sub(c, a), w = sub(point, a);
-      const uu = dot(u, u), uv = dot(u, v), vv = dot(v, v);
-      const det = uu * vv - uv * uv;
-      if (det < 1e-16) return false;
-      const s = (dot(w, u) * vv - dot(w, v) * uv) / det;
-      const t = (dot(w, v) * uu - dot(w, u) * uv) / det;
-      return s >= -1e-5 && t >= -1e-5 && s + t <= 1 + 1e-5
-        && Math.hypot(...w.map((value, i) => value - s * u[i] - t * v[i])) < 1e-6;
-    };
-    const before = triangles(0.3);
-    const ink = before.map(triangle => triangle[0].map((_, i) =>
-      triangle.reduce((sum, vertex) => sum + vertex[i], 0) / 3));
-    for (const time of [0.7, 1.2, p.duration]) {
+    const before = triangles(1.3);
+    assert.equal(before.length, 2, 'the first completed segment has two triangles');
+    const [a, b, c] = before[0];
+    assert.ok(Math.abs((b[0] - a[0]) * (c[1] - a[1])
+      - (b[1] - a[1]) * (c[0] - a[0])) > 1e-8, 'the completed ink has area');
+    assert.deepEqual(triangles(1.4), before, 'there is no interpolated leading triangle');
+    for (const time of [1.6, 2.2, p.duration]) {
       const after = triangles(time);
-      assert.ok(ink.every(point => after.some(triangle => contains(point, triangle))),
-        'existing ink stays on the same surface at ' + time);
+      assert.deepEqual(after.slice(0, before.length), before,
+        'completed triangles stay fixed at ' + time);
     }
-    assert.deepEqual(triangles(0.3), before, 'a backward seek restores the same clipped surface');
+    assert.deepEqual(triangles(1.3), before, 'a backward seek restores the same completed surface');
+    p.destroy();
+  });
+
+  test('dust toggles preserve partial ticks while seeking discards them', () => {
+    const p = build().step(1 / 120);
+    p.setEffect('dust', false).step(1 / 120);
+    assert.ok(near(p.time, 1 / 60), 'disabling dust does not lose half a tick');
+    p.step(1 / 120).setEffect('dust', true).step(1 / 120);
+    assert.ok(near(p.time, 2 / 60), 'enabling dust does not lose half a tick');
+    p.step(1 / 120).seek(0.5).step(1 / 120);
+    assert.equal(p.time, 0.5, 'a seek starts with a fresh tick');
+    p.step(1 / 120);
+    assert.ok(near(p.time, 0.5 + 1 / 60));
+    p.destroy();
+  });
+
+  test('loops only past the end and discards loop overshoot, not a partial tick', () => {
+    for (const duration of [1 / 60, 1.5 / 60]) {
+      const p = new ThreePlayer(stubThree(), stubGlCanvas(), {
+        strokes: [{ points: [[0, 0, 0], [1, 1, duration]] }]
+      }, { holdSec: 0, fadeSec: 0 });
+      p.step(1 / 60);
+      assert.equal(p.time, 1 / 60, 'reaching the exact end does not loop yet');
+      p.step(1.5 / 60);
+      assert.equal(p.time, 0, 'the crossing tick resets to zero without carrying overshoot');
+      p.step(0.5 / 60);
+      assert.equal(p.time, 1 / 60, 'the unconsumed half tick survives the loop');
+      p.destroy();
+    }
+  });
+
+  test('resizing to portrait keeps the native camera distance and user zoom', () => {
+    const canvas = stubGlCanvas();
+    const p = new ThreePlayer(stubThree(), canvas, tag);
+    const distance = () => Math.hypot(p.camera.position.x, p.camera.position.y, p.camera.position.z);
+    canvas.clientWidth = 200;
+    canvas.clientHeight = 600;
+    p.resize();
+    assert.ok(near(distance(), 2.7), 'portrait does not add a fitting multiplier');
+    const wheel = Object.assign(new Event('wheel', { cancelable: true }), { deltaY: 100 });
+    canvas.dispatchEvent(wheel);
+    const zoomed = distance();
+    assert.ok(zoomed > 2.7, 'wheel input changes the camera distance');
+    canvas.clientWidth = 800;
+    p.resize();
+    assert.ok(near(distance(), zoomed), 'resizing does not change the chosen zoom');
     p.destroy();
   });
 
@@ -518,11 +584,12 @@ describe('ThreePlayer', () => {
     try {
       const p = build().play();
       frames.shift()(1000);
+      assert.ok(near(p.time, 1 / 60), 'the first frame advances by one native tick');
       frames.shift()(1016);
-      const before = p.elapsed;
+      const before = p.time;
       // A tab left in the background for a minute.
       frames.shift()(61016);
-      assert.ok(p.elapsed - before <= 0.1 + 1e-9, 'the clock does not replay the whole gap');
+      assert.ok(near(p.time - before, 0.05), 'the clock advances by the capped three ticks');
       p.destroy();
     } finally {
       globalThis.requestAnimationFrame = raf;
