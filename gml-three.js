@@ -114,8 +114,14 @@ export class ThreePlayer {
     this.destroyed = false;
     this.canvasStyle = { width: canvas.style.width, height: canvas.style.height };
 
-    // No display options, so the shared UI shows only transport controls.
-    this.capabilities = { modes: [], effects: [], layers: [], about: {} };
+    this.effects = { dust: true, 'auto-rotate': true };
+    this.capabilities = {
+      modes: [], effects: Object.keys(this.effects), layers: [],
+      about: {
+        dust: 'Dust follows the pen. Turn it off to clear it, then on to follow new marks.',
+        'auto-rotate': 'Orbit automatically. Turn it off to hold the angle; dragging still works.'
+      }
+    };
 
     this.camera3 = { yaw: 0, pitch: 0, dist: this.opts.dist };
     this.cameraDistanceScale = 1;
@@ -591,6 +597,8 @@ export class ThreePlayer {
     this.meshes.forEach(m => { m.mesh.material.opacity = opts.strokeAlpha * fade; });
     if (this.dots) this.dots.material.opacity = opts.particleAlpha * fade;
     if (this.trails) this.trails.material.opacity = opts.trailAlpha * fade;
+    if (this.dots) this.dots.visible = this.effects.dust;
+    if (this.trails) this.trails.visible = this.effects.dust;
 
     const c = this.camera3;
     const ce = Math.cos(c.pitch);
@@ -615,7 +623,12 @@ export class ThreePlayer {
     const loopEnd = holdEnd + opts.fadeSec;
 
     this.elapsed += dt;
-    if (!this.dragging) this.camera3.yaw += opts.autoRotate * dt;
+    if (!this.dragging && this.effects['auto-rotate']) this.camera3.yaw += opts.autoRotate * dt;
+    // Hidden dust does not need a simulation. Re-enabling starts at the current head.
+    if (!this.effects.dust) {
+      if (this.elapsed >= loopEnd) this.elapsed %= loopEnd;
+      return this;
+    }
     // Reset before drawing. Resetting after flashed the finished tag at full opacity.
     if (this.elapsed >= loopEnd) {
       this.elapsed %= loopEnd;
@@ -667,6 +680,14 @@ export class ThreePlayer {
   }
 
   toggle() { return this.playing ? this.pause() : this.play(); }
+
+  setEffect(name, on) {
+    if (this.destroyed || !Object.hasOwn(this.effects, name) || this.effects[name] === !!on) return this;
+    this.effects[name] = !!on;
+    if (name === 'dust') this.resetDust();
+    this.emit('config');
+    return this.render();
+  }
 
   setSpeed(rate) {
     if (this.opts.speed !== rate) {

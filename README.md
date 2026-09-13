@@ -74,6 +74,13 @@ based on [Evan Roth's 3D fork](https://github.com/evanroth/canvasplayer/tree/ga4
 Drag to orbit; scroll to zoom. Tested with three.js r160. Use a fresh canvas
 when changing renderers. A canvas cannot switch context types.
 
+This preserves the style, not pixel-identical playback: orientation, timing,
+endpoints, and frame-rate handling differ.
+
+The shared controls offer `dust` and `auto-rotate`, both on by default.
+Use `player.setEffect(name, on)`. Dust off clears and stops simulation; on follows
+new marks. Auto-rotate off holds the angle without disabling drag or zoom.
+
 ## Drawing options
 
 | | Choices |

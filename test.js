@@ -387,6 +387,27 @@ describe('ThreePlayer', () => {
     p.destroy();
   });
 
+  test('re-enabling dust follows the current head without replaying hidden loops', () => {
+    const p = build().step(0.4).render();
+    p.setEffect('dust', false);
+    assert.equal(p.dots.visible, false);
+    assert.equal(p.trails.visible, false);
+    assert.equal(p.dotGeo.drawRange.count, 0);
+    p.step(p.duration + p.opts.holdSec + p.opts.fadeSec + 0.6).render();
+    assert.ok(near(p.time, 1), 'the drawing keeps looping while dust is off');
+
+    const fresh = build().seek(p.time);
+    p.setEffect('dust', true).step(1 / 60).render();
+    fresh.step(1 / 60).render();
+    assert.equal(p.dots.visible, true);
+    assert.equal(p.trails.visible, true);
+    assert.equal(p.trailGeo.drawRange.count, fresh.trailGeo.drawRange.count);
+    const count = fresh.trailGeo.drawRange.count * 3;
+    assert.deepEqual(p.trailPos.slice(0, count), fresh.trailPos.slice(0, count));
+    p.destroy();
+    fresh.destroy();
+  });
+
   test('publishes the new frame when a paused player loads another tag', () => {
     const p = build().seek(1);
     const frames = [];
