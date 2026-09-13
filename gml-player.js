@@ -11,6 +11,8 @@
 
 import { DEFAULTS as PREPARE, prepare, progress, noise, clamp, lerp } from './gml.js';
 
+export { parse, prepare } from './gml.js';
+
 // Diagnostic overlays, each independently switchable.
 export const LAYERS = ['ink', 'drips', 'vectors', 'points', 'bounds', 'graph'];
 

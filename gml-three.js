@@ -7,7 +7,7 @@
  *
  * Based on Evan Roth's ga4-3d-player fork of canvasplayer.
  * Its look, field and settings inform this renderer.
- * Shared gml.js preparation repairs timing, orientation and width.
+ * Shared gml.js preparation repairs timing and orientation.
  * Checking capture orientation avoids the fork's sideways rendering of #147.
  *
  * Public domain, Jamie Wilkinson & Free Art & Technology (F.A.T.) Lab.
@@ -31,7 +31,7 @@ export const DEFAULTS = {
 
   // Slight transparency matches the fork.
   strokeAlpha: 0.9,
-  // gml.js widths suit 2D. Double them for the fork's wider world-space ribbons.
+  // Ribbon width multiplier. Two gives the fork's 0.04 slow half-width.
   strokeWidth: 2,
   // Samples used to taper each stroke's start and end.
   taper: 6,
@@ -65,6 +65,29 @@ export const DEFAULTS = {
   // Playback rate for the shared transport.
   speed: 1
 };
+
+// Four Catmull-Rom samples per segment, as in the fork. Clamp the end
+// controls to keep both endpoints; linear time cannot overshoot repaired time.
+function smooth(points) {
+  if (points.length < 4) return points;
+  const out = [];
+  const cr = (a, b, c, d, t) => {
+    const t2 = t * t, t3 = t2 * t;
+    return 0.5 * (2 * b + (c - a) * t + (2 * a - 5 * b + 4 * c - d) * t2
+      + (-a + 3 * b - 3 * c + d) * t3);
+  };
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[Math.max(0, i - 1)], b = points[i];
+    const c = points[i + 1], d = points[Math.min(points.length - 1, i + 2)];
+    for (let j = 0; j < 4; j++) {
+      const t = j / 4;
+      out.push([cr(a[0], b[0], c[0], d[0], t), cr(a[1], b[1], c[1], d[1], t),
+        b[2] + (c[2] - b[2]) * t]);
+    }
+  }
+  out.push(points[points.length - 1]);
+  return out;
+}
 
 /*
  * Play a parsed tag on a WebGL canvas. Pass a tag now or call load() later.
@@ -143,12 +166,18 @@ export class ThreePlayer {
     if (this.destroyed) return this;
     this.clear();
     this.tag = prepare(tag, this.opts);
+    this.paths = this.tag.strokes.map(stroke => smooth(stroke.points));
 
-    // Center and scale to one unit across. Other sizes are artwork multiples.
-    const b = this.tag.bounds;
-    this.cx = (b.x0 + b.x1) / 2;
-    this.cy = (b.y0 + b.y1) / 2;
-    this.size = Math.max(b.x1 - b.x0, b.y1 - b.y0, 1e-3);
+    // Fit the smoothed path, including any curve beyond the captured bounds.
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const points of this.paths) for (const [x, y] of points) {
+      x0 = Math.min(x0, x); y0 = Math.min(y0, y);
+      x1 = Math.max(x1, x); y1 = Math.max(y1, y);
+    }
+    if (!this.paths.length) ({ x0, y0, x1, y1 } = this.tag.bounds);
+    this.cx = (x0 + x1) / 2;
+    this.cy = (y0 + y1) / 2;
+    this.size = Math.max(x1 - x0, y1 - y0, 1e-3);
     this.scale = 1 / this.size;
 
     const half = this.size * (0.5 + this.opts.margin);
@@ -189,19 +218,24 @@ export class ThreePlayer {
   }
 
   /*
-   * Two vertices per sample form a ribbon at gml.js's speed-based width.
-   * Playback adjusts the draw range and interpolates its leading vertex pair.
-   * Keep original pairs so backward seeks can restore the ribbon.
+   * Cache the fork's smooth, distance-shaped ribbon in world space.
+   * An extra vertex on each triangle diagonal lets the leading edge clip
+   * the original triangles, rather than bend already drawn ink.
    */
   buildStrokes() {
     const { opts } = this;
-    this.tag.strokes.forEach(stroke => {
-      const pts = stroke.points;
+    this.paths.forEach(pts => {
       const n = pts.length;
       if (!n) return;
 
       const world = pts.map(p => this.world(p[0], p[1], p[2]));
-      const positions = new Float32Array(n === 1 ? 12 : n * 6);
+      const positions = new Float32Array(n === 1 ? 12 : n * 6 + (n - 1) * 3);
+      const distances = world.map((p, i) => i
+        ? Math.hypot(p[0] - world[i - 1][0], p[1] - world[i - 1][1]) : 0);
+      // A single fast jump must not flatten every other sample to full width.
+      const sorted = distances.filter(d => d > 0).sort((a, b) => a - b);
+      const reference = sorted.length ? Math.max(sorted[Math.floor(sorted.length * 0.85)], 1e-6) : 1e-6;
+      const widthScale = opts.strokeWidth / DEFAULTS.strokeWidth;
 
       for (let i = 0; i < n; i++) {
         const a = world[i > 0 ? i - 1 : i];
@@ -217,7 +251,8 @@ export class ThreePlayer {
         if (opts.taper > 1) {
           taper = Math.pow(Math.min(1, i / (opts.taper - 1), (n - 1 - i) / (opts.taper - 1)), 1.1);
         }
-        const hw = Math.max(stroke.width[i] * opts.strokeWidth * taper, 0.004) / 2;
+        const speed = clamp(distances[i] / reference, 0, 1);
+        const hw = Math.max(0.04 * (1 - speed * 0.92) * taper, 0.002) * widthScale;
 
         const [x, y, z] = world[i];
         positions[i * 6] = x + px * hw;
@@ -232,7 +267,7 @@ export class ThreePlayer {
       if (n === 1) {
         // A legal one-sample stroke is a dab, not an empty ribbon.
         const [x, y, z] = world[0];
-        const hw = Math.max(stroke.width[0] * opts.strokeWidth, 0.004) / 2;
+        const hw = 0.04 * widthScale;
         positions.set([x - hw, y - hw, z, x + hw, y - hw, z,
           x - hw, y + hw, z, x + hw, y + hw, z]);
         index.push(0, 1, 2, 1, 3, 2);
@@ -242,7 +277,10 @@ export class ThreePlayer {
         const r0 = l0 + 1;
         const l1 = l0 + 2;
         const r1 = l0 + 3;
-        index.push(l0, r0, l1, r0, r1, l1);
+        const diagonal = n * 2 + i;
+        positions.set(positions.subarray((i + 1) * 6, (i + 1) * 6 + 3), diagonal * 3);
+        // At a complete segment the middle triangle collapses to zero area.
+        index.push(l0, r0, diagonal, l0, diagonal, l1, r0, r1, diagonal);
       }
 
       const geo = new this.THREE.BufferGeometry();
@@ -339,8 +377,8 @@ export class ThreePlayer {
     if (this.dotGeo) this.uploadDust();
   }
 
-  // Spread head motion across nearby cells. Positions, impulses and velocities
-  // use capture units. Only lookup and injection radius use cells.
+  // The fork calibrates head motion in grid cells, then applies the field
+  // directly to capture-space velocity. Removing cell size kills its flight.
   inject(x, y, stroke) {
     if (stroke !== this.injectLastStroke) {
       this.injectLastStroke = stroke;
@@ -357,10 +395,8 @@ export class ThreePlayer {
     const { opts, field } = this;
     const cx = (x - this.stage.x0) / this.cw;
     const cy = (y - this.stage.y0) / this.ch;
-    // Dividing by cell size mixed cell and capture units. Denser grids then
-    // flung particles farther, despite a stable fixed-step integrator.
-    const vx = dx * opts.injectScale;
-    const vy = dy * opts.injectScale;
+    const vx = dx / this.cw * opts.injectScale;
+    const vy = dy / this.ch * opts.injectScale;
     const R = opts.injectRadius;
 
     for (let j = Math.max(0, Math.floor(cy - R)); j <= Math.min(this.rows - 1, Math.ceil(cy + R)); j++) {
@@ -378,9 +414,9 @@ export class ThreePlayer {
   // Visit every crossed segment, not just the stroke under the display
   // frame. A short stroke or its final sample must not disappear at 30 Hz.
   injectBetween(from, to) {
-    const strokes = this.tag.strokes;
+    const strokes = this.paths;
     while (this.headStroke < strokes.length) {
-      const pts = strokes[this.headStroke].points;
+      const pts = strokes[this.headStroke];
       if (pts[0][2] > to) break;
       while (this.headPoint < pts.length) {
         const a = pts[this.headPoint - 1];
@@ -406,8 +442,7 @@ export class ThreePlayer {
     const { P, field, opts } = this;
     const drag = Math.min(1, opts.friction * dt);
     const push = opts.reactivity * dt;
-    // Convert gravity from artwork sizes per second squared to capture units.
-    const g = falling ? opts.gravity * this.size * dt : 0;
+    const g = falling ? opts.gravity * dt : 0;
     const decay = Math.pow(opts.fieldDecay, dt * 60);
 
     for (let k = 0; k < P.n; k++) {
@@ -518,14 +553,17 @@ export class ThreePlayer {
         mesh.geometry.setDrawRange(0, lo ? 6 : 0);
         return;
       }
-      // Bend the leading pair back to the head. Restore the previous pair
-      // unless this frame will overwrite it.
+      // Clip the leading pair and the original diagonal at the same time.
+      // Restore the previous segment unless this frame will overwrite it.
       const edge = lo > 0 && lo < pts.length ? lo : -1;
       if (m.edge >= 0 && m.edge !== edge) {
         const offset = m.edge * 6;
         for (let k = 0; k < 6; k++) position.array[offset + k] = original[offset + k];
         position.addUpdateRange(offset, 6);
         position.needsUpdate = true;
+        const diagonal = pts.length * 6 + (m.edge - 1) * 3;
+        for (let k = 0; k < 3; k++) position.array[diagonal + k] = original[diagonal + k];
+        position.addUpdateRange(diagonal, 3);
       }
       if (edge >= 0) {
         const fraction = (head - pts[edge - 1][2]) / (pts[edge][2] - pts[edge - 1][2]);
@@ -536,9 +574,15 @@ export class ThreePlayer {
         }
         position.addUpdateRange(offset, 6);
         position.needsUpdate = true;
+        const diagonal = pts.length * 6 + (edge - 1) * 3;
+        for (let k = 0; k < 3; k++) {
+          const start = original[offset - 3 + k];
+          position.array[diagonal + k] = start + (original[offset + k] - start) * fraction;
+        }
+        position.addUpdateRange(diagonal, 3);
       }
       m.edge = edge;
-      mesh.geometry.setDrawRange(0, lo ? Math.min(lo, pts.length - 1) * 6 : 0);
+      mesh.geometry.setDrawRange(0, lo ? Math.min(lo, pts.length - 1) * 9 : 0);
     });
 
     const fade = this.elapsed > holdEnd

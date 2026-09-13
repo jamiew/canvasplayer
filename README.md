@@ -8,7 +8,7 @@ at the speed of the hand. No dependencies or build step.
 
 [2D demo](https://jamiew.github.io/canvasplayer/?renderer=canvas) ·
 [WebGL demo](https://jamiew.github.io/canvasplayer/?renderer=webgl) ·
-[Embed examples](https://jamiew.github.io/canvasplayer/examples/iframe.html)
+[Embed options](https://jamiew.github.io/canvasplayer/embeds/)
 
 ## Install and use
 
@@ -20,8 +20,7 @@ without an import map or bundler, use relative file paths instead.
 ```html
 <div class="stage" style="max-width:560px;height:360px"><canvas></canvas></div>
 <script type="module">
-  import { parse } from 'canvasplayer/gml';
-  import { GmlPlayer } from 'canvasplayer';
+  import { parse, GmlPlayer } from 'canvasplayer';
 
   const json = await (await fetch('./tag.json')).json();
   const tag = parse(json.gml, json.id);
@@ -30,10 +29,10 @@ without an import map or bundler, use relative file paths instead.
 </script>
 ```
 
-Use the bundled [tag.json](examples/tag.json) to try it. The canvas fills its
+Use the bundled [tag.json](embeds/tag.json) to try it. The canvas fills its
 parent, so give that element a size. Serve files over HTTP, not `file://`.
-The #000000book API has no CORS header; the [demo](index.html) uses JSONP to
-load tags across origins.
+The #000000book API has no CORS header; the demo and embeds share a site-only
+[JSONP loader](load-tag.js) to load tags across origins.
 
 ### Optional controls
 
@@ -70,8 +69,8 @@ const player = new ThreePlayer(THREE, canvas, tag);
 player.play();
 ```
 
-WebGL adds time as depth and a dust field, after
-[Evan Roth's 3D fork](https://github.com/evanroth/canvasplayer/tree/ga4-3d-player).
+WebGL adds smoothed ribbons, time as depth, and flying dust trails with gravity,
+based on [Evan Roth's 3D fork](https://github.com/evanroth/canvasplayer/tree/ga4-3d-player).
 Drag to orbit; scroll to zoom. Tested with three.js r160. Use a fresh canvas
 when changing renderers. A canvas cannot switch context types.
 
@@ -83,7 +82,7 @@ when changing renderers. A canvas cannot switch context types.
 | Effects | `ghost`, `smooth`, `bleed`, `jitter`, `fade` |
 | Data layers | `ink`, `drips`, `vectors`, `points`, `bounds`, `graph` |
 
-The demo and player example start in marker with ghost, smooth and drips on.
+The demo and player embed start in marker with ghost, smooth and drips on.
 Use the buttons or `setMode(name)`, `setEffect(name, on)` and
 `setLayer(name, on)` to change them.
 
@@ -100,8 +99,8 @@ leave fullscreen to reach the drawing options.
 
 | Module | Core exports |
 |---|---|
-| `canvasplayer/gml` | `parse(json, id)`, `prepare(tag, options)`, `progress(strokes, time)`, `isLandscape(environment, strokes)` |
-| `canvasplayer` | `GmlPlayer(canvas, tag, options)`, `paint(ctx, tag, frame)`, `fit(bounds, w, h, pad)`, `MODES`, `EFFECTS`, `LAYERS`, `ABOUT`, `DEFAULTS` |
+| `canvasplayer` | `parse(json, id)`, `prepare(tag, options)`, `GmlPlayer(canvas, tag, options)`, `paint(ctx, tag, frame)`, `fit(bounds, w, h, pad)`, `MODES`, `EFFECTS`, `LAYERS`, `ABOUT`, `DEFAULTS` |
+| `canvasplayer/gml` | Data preparation only: `parse`, `prepare`, `progress(strokes, time)`, `isLandscape(environment, strokes)` |
 | `canvasplayer/ui` | `transport(player, host)`, `switches(player, host)`, `secs(time)` |
 | `canvasplayer/three` | `ThreePlayer(THREE, canvas, tag, options)`, `DEFAULTS` |
 
@@ -135,26 +134,50 @@ Both players provide `load`, `play`, `pause`, `toggle`, `seek`, `setSpeed`,
 Subscribe with `on(name, callback)`; `off(name, callback)` removes all matching
 registrations. Both return the player.
 
-## Examples and embedding
+## Embeds
 
-Run the repo's [gallery](examples/iframe.html), [player](examples/player.html),
-[animation only](examples/playback.html) or [static drawing](examples/draw.html).
-They use bundled tag #100 and are not included in the npm package. Keep the
-relative directory layout when copying, including the `demo-theme.js`,
-`demo-theme.css` and gallery `demo-header.css` files in `examples/`.
+Choose an [animation](https://jamiew.github.io/canvasplayer/embeds/animation.html?id=161),
+[full player](https://jamiew.github.io/canvasplayer/embeds/player.html?id=161) or
+[static drawing](https://jamiew.github.io/canvasplayer/embeds/drawing.html?id=161).
+The [gallery](https://jamiew.github.io/canvasplayer/embeds/) shows all three.
+These paste-ready snippets use public GitHub Pages URLs. Local changes may
+not be deployed there yet.
 
 ```html
-<iframe src="./examples/player.html" title="Graffiti player" loading="lazy"
+<iframe src="https://jamiew.github.io/canvasplayer/embeds/animation.html?id=161"
+        title="Animated graffiti drawing" loading="lazy"
+        style="width:100%;aspect-ratio:1;border:0"></iframe>
+
+<iframe src="https://jamiew.github.io/canvasplayer/embeds/player.html?id=161"
+        title="Graffiti player" loading="lazy"
+        style="width:100%;height:800px;border:0"></iframe>
+
+<iframe src="https://jamiew.github.io/canvasplayer/embeds/drawing.html?id=161"
+        title="Static graffiti drawing" loading="lazy"
         style="width:100%;height:800px;border:0"></iframe>
 ```
 
-- Use an absolute HTTPS `src` when hosted elsewhere. Framing needs no CORS;
-  fetching data from a third origin still does.
+All three accept a numeric `?id`, such as `?id=147`. Without it, or with
+`?id=161`, they load bundled Katsu #161 without an external API request.
+Other IDs load from 000000book through JSONP. Invalid IDs and failed loads
+show an error rather than falling back to a different drawing.
+
+For local development, open `/embeds/` on your static server. Its preview
+frames use relative URLs so content sizing works on the same origin.
+For example, test http://localhost:8420/embeds/player.html?id=147.
+The gallery's Open links and copied snippets still point to the public site.
+
+The embeds and shared loader are site-only and excluded from npm. If
+self-hosting, keep the directory layout, `load-tag.js`, root `site.css` and
+`theme.js`, and required library files.
+
+- Framing needs no CORS. JSONP executes scripts from 000000book; allow only
+  trusted script sources in your content security policy.
 - Keep scrolling available with fixed heights. The gallery shows same-origin
   content sizing with `ResizeObserver`; it cannot measure cross-origin frames.
 - The host's `frame-src` and the player's `frame-ancestors` and
   `X-Frame-Options` policies must allow the embed.
-- A sandbox is optional. These examples need `allow-scripts allow-same-origin`
+- A sandbox is optional. These embeds need `allow-scripts allow-same-origin`
   if sandboxed; that combination does not isolate untrusted same-origin code.
 - There is no cross-origin `postMessage` control API. Use the framed controls.
 

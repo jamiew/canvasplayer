@@ -2,10 +2,9 @@
 <html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>canvasplayer: iframe embedding</title>
-<script src="./demo-theme.js"></script>
-<link rel="stylesheet" href="./demo-theme.css">
-<link rel="stylesheet" href="./demo-header.css">
+<title>canvasplayer: Embed options</title>
+<script src="../theme.js"></script>
+<link rel="stylesheet" href="../site.css">
 <style>
   * { box-sizing: border-box; }
   body {
@@ -13,31 +12,31 @@
     font-family: var(--sans);
     -webkit-font-smoothing: antialiased;
   }
-  main { font-size: 14px; line-height: 1.6; }
-  h2 { margin: 0 0 10px; font-size: 20px; letter-spacing: -0.025em; line-height: 1.25; }
+  main { font-size: 16px; line-height: 1.6; }
+  h2 { margin: 0 0 10px; font-size: 22px; letter-spacing: -0.025em; line-height: 1.25; }
   p { margin: 0 0 14px; }
   .intro { max-width: 72ch; margin: 0 auto 30px; text-align: center; color: var(--mute); }
-  .example { padding: 28px 0; border-top: 1px solid var(--rule-soft); }
-  .example-grid { display: grid; grid-template-columns: minmax(0, 560px) minmax(0, 1fr); gap: 24px; align-items: start; }
-  .example-copy { min-width: 0; }
+  .embed { padding: 28px 0; border-top: 1px solid var(--rule-soft); }
+  .embed-grid { display: grid; grid-template-columns: minmax(0, 560px) minmax(0, 1fr); gap: 24px; align-items: start; }
+  .embed-copy { min-width: 0; }
   iframe { display: block; width: 100%; border: 1px solid var(--ink); background: #000; }
   .player-frame, .drawing-frame { height: 800px; background: var(--paper); }
-  .playback-frame { aspect-ratio: 1; }
-  code { font-size: 12px; overflow-wrap: anywhere; }
+  .animation-frame { aspect-ratio: 1; }
+  code { font-size: 14px; overflow-wrap: anywhere; }
   pre { margin: 16px 0; padding: 14px; border: 1px solid var(--rule-soft); white-space: pre-wrap; overflow-wrap: anywhere; }
   .guidance { padding-top: 28px; border-top: 1px solid var(--rule-soft); max-width: 72ch; }
   .guidance ul { padding-left: 20px; }
   .guidance li + li { margin-top: 8px; }
   footer.page {
     margin-top: 40px; padding-top: 18px; border-top: 1px solid var(--rule-soft);
-    font-size: 12.5px; line-height: 1.7; color: var(--mute); text-align: center;
+    font-size: 14.5px; line-height: 1.7; color: var(--mute); text-align: center;
   }
   footer.page a { color: var(--mute); }
   footer.page a:hover { color: var(--ink); }
   @media (max-width: 859px) {
     body { padding: 20px 18px 40px; }
-    .example-grid { grid-template-columns: minmax(0, 560px); justify-content: center; gap: 18px; }
-    .example-copy { grid-row: 1; }
+    .embed-grid { grid-template-columns: minmax(0, 560px); justify-content: center; gap: 18px; }
+    .embed-copy { grid-row: 1; }
   }
 </style>
 <div class="topbar">
@@ -54,28 +53,46 @@
   </button>
 </div>
 <header class="masthead">
-  <h1>canvasplayer</h1>
+  <h1><a href="../">canvasplayer</a></h1>
   <p class="tagline">
     <a href="https://fffff.at/gml-week-graffiti-markup-language/">Graffiti Markup Language</a>
     playback. <a href="https://github.com/jamiew/canvasplayer">Source on GitHub</a>
   </p>
-  <p class="renderers"><a href="../?renderer=canvas">2D Canvas</a><a href="../?renderer=webgl">three.js/WebGL</a><a href="./iframe.html" aria-current="page">iframe embed</a></p>
+  <nav class="renderers" aria-label="Player mode"><a href="../?renderer=canvas">2D Canvas</a><a href="../?renderer=webgl">three.js/WebGL</a><a href="./" aria-current="page">Embed</a></nav>
 </header>
 <main>
   <div class="intro">
-    <h2>Embed with an iframe</h2>
-    <p>Three ways to show <a href="https://000000book.com/data/100">tag #100</a>.
-      Each frame loads only the modules it needs.</p>
+    <h2>Embed options</h2>
+    <p>Three ways to show <a href="https://000000book.com/data/161">Katsu #161</a>.
+      Each frame loads only the modules it needs. Change <code>?id=161</code>
+      in the public snippets to select another numeric tag ID.</p>
   </div>
 
-  <section class="example" aria-labelledby="player-heading">
-    <div class="example-grid">
-      <iframe class="player-frame" src="./player.html" title="Graffiti player with controls for tag 100" loading="lazy"></iframe>
-      <div class="example-copy">
-        <h2 id="player-heading">Player with controls</h2>
+  <section class="embed" aria-labelledby="animation-heading">
+    <div class="embed-grid">
+      <iframe class="animation-frame" src="./animation.html?id=161" title="Graffiti animation for Katsu tag 161" loading="lazy"></iframe>
+      <div class="embed-copy">
+        <h2 id="animation-heading">Animation</h2>
+        <p>The drawing fills its frame and loops without controls.
+          With reduced motion enabled, it shows the finished tag.</p>
+        <p><a href="https://jamiew.github.io/canvasplayer/embeds/animation.html?id=161">Open animation</a></p>
+        <pre><code>&lt;iframe src="https://jamiew.github.io/canvasplayer/embeds/animation.html?id=161"
+  title="Animated graffiti drawing"
+  loading="lazy"
+  style="width:100%;aspect-ratio:1;border:0"&gt;
+&lt;/iframe&gt;</code></pre>
+      </div>
+    </div>
+  </section>
+
+  <section class="embed" aria-labelledby="player-heading">
+    <div class="embed-grid">
+      <iframe class="player-frame" src="./player.html?id=161" title="Graffiti player with controls for Katsu tag 161" loading="lazy"></iframe>
+      <div class="embed-copy">
+        <h2 id="player-heading">Full player</h2>
         <p>Play, pause, scrub and change the ink. Use Remove player to stop playback and release its resources.</p>
-        <p><a href="./player.html">Open player</a></p>
-        <pre><code>&lt;iframe class="player-frame" src="./player.html"
+        <p><a href="https://jamiew.github.io/canvasplayer/embeds/player.html?id=161">Open player</a></p>
+        <pre><code>&lt;iframe class="player-frame" src="https://jamiew.github.io/canvasplayer/embeds/player.html?id=161"
   title="Graffiti player"
   loading="lazy"
   style="width:100%;height:800px;border:0"&gt;
@@ -85,33 +102,16 @@
     </div>
   </section>
 
-  <section class="example" aria-labelledby="playback-heading">
-    <div class="example-grid">
-      <iframe class="playback-frame" src="./playback.html" title="Graffiti animation for tag 100" loading="lazy"></iframe>
-      <div class="example-copy">
-        <h2 id="playback-heading">Animation only</h2>
-        <p>The drawing fills its frame and loops without controls.
-          With reduced motion enabled, it shows the finished tag.</p>
-        <p><a href="./playback.html">Open animation</a></p>
-        <pre><code>&lt;iframe src="./playback.html"
-  title="Animated graffiti drawing"
-  loading="lazy"
-  style="width:100%;aspect-ratio:1;border:0"&gt;
-&lt;/iframe&gt;</code></pre>
-      </div>
-    </div>
-  </section>
-
-  <section class="example" aria-labelledby="drawing-heading">
-    <div class="example-grid">
-      <iframe class="drawing-frame" src="./draw.html" title="Finished graffiti drawing for tag 100" loading="lazy"></iframe>
-      <div class="example-copy">
-        <h2 id="drawing-heading">Finished drawing</h2>
+  <section class="embed" aria-labelledby="drawing-heading">
+    <div class="embed-grid">
+      <iframe class="drawing-frame" src="./drawing.html?id=161" title="Static graffiti drawing for Katsu tag 161" loading="lazy"></iframe>
+      <div class="embed-copy">
+        <h2 id="drawing-heading">Static drawing</h2>
         <p>Draw once with <code>parse</code>, <code>prepare</code> and <code>paint</code>.
           No player or animation loop.</p>
-        <p><a href="./draw.html">Open drawing</a></p>
-        <pre><code>&lt;iframe class="drawing-frame" src="./draw.html"
-  title="Finished graffiti drawing"
+        <p><a href="https://jamiew.github.io/canvasplayer/embeds/drawing.html?id=161">Open static drawing</a></p>
+        <pre><code>&lt;iframe class="drawing-frame" src="https://jamiew.github.io/canvasplayer/embeds/drawing.html?id=161"
+  title="Static graffiti drawing"
   loading="lazy"
   style="width:100%;height:800px;border:0"&gt;
 &lt;/iframe&gt;</code></pre>
@@ -122,16 +122,20 @@
 
   <section class="guidance" aria-labelledby="hosting-heading">
     <h2 id="hosting-heading">Embed on another site</h2>
-    <p>JSON and module URLs resolve relative to the framed page, not the host.</p>
+    <p>The snippets and Open links use public GitHub Pages URLs, ready to paste
+      into another site once deployed. Local changes may not be published yet.
+      These previews use relative URLs so local development and sizing stay same-origin.</p>
     <ul>
-      <li>Use your example's absolute HTTPS URL as <code>src</code>.
-        Serve its modules and bundled <code>tag.json</code> over HTTP or HTTPS, not <code>file://</code>.</li>
+      <li>JSON and module URLs resolve relative to the framed page, not the host.
+        If self-hosting, keep the directory layout, modules, <code>load-tag.js</code>,
+        <code>site.css</code>, <code>theme.js</code> and bundled <code>tag.json</code>.
+        Serve over HTTP or HTTPS, not <code>file://</code>.</li>
       <li>Set the frame size on the host page.
-        Check fixed heights at narrow widths and allow scrolling. Animation-only frames stay square.</li>
+        Check fixed heights at narrow widths and allow scrolling. Animation frames stay square.</li>
       <li>The gallery uses <code>ResizeObserver</code> to fit frames to their content.
         Place the sizing script below after the matching iframes.
         It requires the same origin and cannot measure cross-origin content.</li>
-      <li>The gallery, player and drawing share theme settings through same-origin storage.
+      <li>The gallery, player and static drawing share theme settings through same-origin storage.
         They follow the system until you choose a theme. The animation stays black.</li>
       <li>The host's <code>frame-src</code> policy must allow the player URL. The player's
         <code>frame-ancestors</code> and <code>X-Frame-Options</code> headers must allow the host.</li>
@@ -139,9 +143,11 @@
         These permissions do not isolate untrusted same-origin code.</li>
       <li>There is no cross-origin <code>postMessage</code> control API. Use the framed controls.</li>
     </ul>
-    <p>To load tags from 000000book instead, embed the
-      <a href="../?renderer=canvas&amp;id=147&amp;fullscreen=1">full demo</a>
-      with <code>?renderer=canvas&amp;id=147&amp;fullscreen=1</code>.</p>
+    <p>All three embeds accept a numeric <code>?id</code>, for example
+      <a href="https://jamiew.github.io/canvasplayer/embeds/player.html?id=147"><code>?id=147</code></a>.
+      Omit it or use <code>?id=161</code> for bundled Katsu data without an external API request.
+      Other IDs use 000000book JSONP because its API has no CORS header.
+      JSONP executes scripts from that service; allow only trusted script sources in your CSP.</p>
     <pre><code>&lt;script&gt;
 document.querySelectorAll('.player-frame, .drawing-frame').forEach(frame =&gt; {
   let observer;

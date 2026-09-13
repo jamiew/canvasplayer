@@ -2,39 +2,41 @@
 <html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>canvasplayer: player and controls</title>
-<script src="./demo-theme.js"></script>
-<link rel="stylesheet" href="./demo-theme.css">
+<title>canvasplayer: Full player</title>
+<script src="../theme.js"></script>
 <link rel="stylesheet" href="../gml-ui.css">
+<link rel="stylesheet" href="../site.css">
 <style>
-  body { display: flow-root; max-width: 560px; margin: 0 auto; padding: 16px; font: 14px/1.5 system-ui, sans-serif; }
-  h1 { margin: 0 0 12px; font-size: 20px; }
+  body { display: flow-root; max-width: 560px; margin: 0 auto; padding: 16px; font: 16px/1.5 system-ui, sans-serif; }
+  h1 { margin: 0 0 12px; font-size: 22px; }
   /* Size from the content width, not the iframe height: the host fits this page. */
   .stage { position: relative; aspect-ratio: 14 / 9; max-height: 360px; background: #000; }
   .stage canvas { position: absolute; inset: 0; display: block; }
   #transport, #switches { margin-top: 12px; }
 </style>
-<h1>Player with controls</h1>
+<h1>Full player</h1>
 <div id="mount">
-  <div class="stage"><canvas aria-label="Animated graffiti drawing from tag 100" role="img"></canvas></div>
+  <div class="stage"><canvas aria-label="Graffiti drawing" role="img"></canvas></div>
   <div id="transport"></div>
   <div id="switches"></div>
 </div>
 <p id="status" role="status">Loading tag</p>
 <button id="remove" type="button" disabled>Remove player</button>
-<p>Data: <a href="https://000000book.com/data/100">tag #100</a>, captured with eyeSaver-003.</p>
+<p id="data" hidden>Data: <a></a>.</p>
 <script type="module">
-  import { parse } from '../gml.js';
-  import { GmlPlayer } from '../gml-player.js';
+  import { parse, GmlPlayer } from '../gml-player.js';
   import { transport, switches } from '../gml-ui.js';
+  import { loadEmbedTag } from '../load-tag.js';
 
   const status = document.getElementById('status');
   const remove = document.getElementById('remove');
   try {
-    const response = await fetch('./tag.json');
-    if (!response.ok) throw new Error('Could not load tag: HTTP ' + response.status);
-    const json = await response.json();
-    const player = new GmlPlayer(document.querySelector('canvas'), parse(json.gml, json.id));
+    const json = await loadEmbedTag();
+    const tag = parse(json.gml, json.id);
+    if (!tag.strokes.length) throw new Error('Tag #' + tag.id + ' has no stroke data');
+    const canvas = document.querySelector('canvas');
+    canvas.setAttribute('aria-label', 'Animated drawing from tag ' + tag.id);
+    const player = new GmlPlayer(canvas, tag);
     player.setEffect('smooth', true);
 
     // Omit these calls and gml-ui.css for canvas only.
@@ -43,6 +45,12 @@
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) player.seek(player.duration);
     else player.play();
     status.textContent = 'Tag #' + json.id + '. Play or scrub with the controls.';
+
+    const data = document.getElementById('data');
+    const link = data.querySelector('a');
+    link.href = 'https://000000book.com/data/' + encodeURIComponent(tag.id);
+    link.textContent = 'Tag #' + tag.id;
+    data.hidden = false;
 
     // In a framework, dispose in the component's unmount hook.
     remove.disabled = false;

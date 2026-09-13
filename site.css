@@ -1,0 +1,110 @@
+:root {
+  color-scheme: light;
+  --paper: #fff;
+  --ink: #000;
+  --rule: #d9d9d9;
+  --rule-soft: #ececec;
+  --mute: #6b6b6b;
+  --sans: "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
+}
+
+/* Page and control colors share the paper and ink variables. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --paper: #000;
+  --ink: #fff;
+  --rule: #333;
+  --rule-soft: #222;
+  --mute: #9a9a9a;
+}
+
+body { background: var(--paper); color: var(--ink); }
+a { color: var(--ink); text-underline-offset: 3px; text-decoration-thickness: 1px; }
+a:hover { text-decoration-color: var(--mute); }
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+body, .stage, .gml-transport .rail, .gml-transport .fill {
+  transition: background-color .2s ease, border-color .2s ease, color .2s ease;
+}
+
+
+/* Shared masthead for the demo and its embed gallery. */
+.topbar { display: flex; justify-content: flex-end; gap: 4px; }
+
+#theme,
+#fullscreen {
+  position: relative;
+  width: 30px; height: 30px; padding: 0;
+  display: grid; place-items: center;
+  background: none; border: 1px solid transparent; border-radius: 4px;
+  color: var(--mute); cursor: pointer;
+}
+#theme:hover,
+#fullscreen:hover { color: var(--ink); border-color: var(--rule); }
+#theme svg,
+#fullscreen svg {
+  grid-area: 1 / 1;
+  width: 16px; height: 16px;
+  transition: opacity .2s ease, transform .3s cubic-bezier(.4, 0, .2, 1);
+}
+/* Both icons reserve the same space while the inactive one rotates away. */
+#theme .moon { opacity: 0; transform: rotate(-90deg) scale(.5); }
+:root[data-theme="dark"] #theme .sun { opacity: 0; transform: rotate(90deg) scale(.5); }
+:root[data-theme="dark"] #theme .moon { opacity: 1; transform: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  body, .stage, #theme svg, #fullscreen svg { transition: none; }
+}
+
+.masthead { text-align: center; margin-bottom: 26px; }
+
+.masthead h1 {
+  margin: 0;
+  font-size: clamp(1.9rem, 5.5vw, 2.6rem);
+  font-weight: 700;
+  letter-spacing: -0.045em;
+  line-height: 1;
+}
+
+.masthead h1 a { color: inherit; text-decoration: none; }
+
+/* Renderer links reload because canvas context types cannot change. */
+.renderers {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin: 16px 0 0;
+  font: 600 16px/1.4 var(--sans);
+}
+.renderers a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 9px 12px;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  color: var(--ink);
+  text-decoration: none;
+}
+.renderers a:hover { border-color: var(--ink); }
+/* Selection must not widen a label when the renderer finishes loading. */
+.renderers a[aria-current] {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.tagline {
+  margin: 12px auto 0;
+  max-width: 72ch;
+  font: 400 15px/1.6 var(--sans);
+  color: var(--mute);
+}
+
+/* Larger controls on the demo site, without changing library defaults. */
+.gml-transport button, .gml-transport .clock { font-size: 13px; }
+.gml-switches button, .gml-switches .about { font-size: 14px; }
+.gml-switches .label { font-size: 12px; }
+.gml-switches .row { grid-template-columns: 84px minmax(0, 1fr); }

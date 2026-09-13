@@ -2,32 +2,32 @@
 <html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>canvasplayer: draw one frame</title>
-<script src="./demo-theme.js"></script>
-<link rel="stylesheet" href="./demo-theme.css">
+<title>canvasplayer: Static drawing</title>
+<script src="../theme.js"></script>
+<link rel="stylesheet" href="../site.css">
 <style>
   body { display: flow-root; max-width: 560px; margin: 0 auto; padding: 24px 16px; font: 16px/1.5 system-ui, sans-serif; }
   h1 { font-size: 22px; }
   canvas { display: block; width: 100%; height: auto; background: #000; }
 </style>
-<h1>Draw one frame</h1>
+<h1>Static drawing</h1>
 <p>Parse, prepare and paint without a player or animation loop.</p>
-<canvas aria-label="Finished graffiti drawing from tag 100" role="img"></canvas>
+<canvas aria-label="Graffiti drawing" role="img"></canvas>
 <p id="status" role="status">Loading tag</p>
-<p>Data: <a href="https://000000book.com/data/100">tag #100</a>, captured with eyeSaver-003.
-  See <a href="player.html">player with controls</a> and <a href="iframe.html">embed examples</a>.</p>
+<p id="data" hidden>Data: <a></a>.</p>
+<p>See <a id="player-link" href="./player.html">player</a> and <a href="./">embed options</a>.</p>
 <script type="module">
-  import { parse, prepare } from '../gml.js';
-  import { paint } from '../gml-player.js';
+  import { parse, prepare, paint } from '../gml-player.js';
+  import { loadEmbedTag } from '../load-tag.js';
 
   const status = document.getElementById('status');
   try {
-    // Bundled data needs no external API or CORS setup.
-    const response = await fetch('./tag.json');
-    if (!response.ok) throw new Error('Could not load tag: HTTP ' + response.status);
-    const json = await response.json();
-    const tag = prepare(parse(json.gml, json.id));
+    const json = await loadEmbedTag();
+    const parsed = parse(json.gml, json.id);
+    if (!parsed.strokes.length) throw new Error('Tag #' + parsed.id + ' has no stroke data');
+    const tag = prepare(parsed);
     const canvas = document.querySelector('canvas');
+    canvas.setAttribute('aria-label', 'Finished drawing from tag ' + tag.id);
     const size = 560;
     const dpr = Math.min(devicePixelRatio || 1, 2);
     canvas.width = canvas.height = Math.round(size * dpr);
@@ -35,6 +35,13 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     paint(ctx, tag, { w: size, h: size, time: tag.duration });
     status.textContent = 'Tag #' + tag.id + ': ' + tag.pointCount + ' points.';
+
+    const data = document.getElementById('data');
+    const link = data.querySelector('a');
+    link.href = 'https://000000book.com/data/' + encodeURIComponent(tag.id);
+    link.textContent = 'Tag #' + tag.id;
+    data.hidden = false;
+    document.getElementById('player-link').href = './player.html?id=' + encodeURIComponent(tag.id);
   } catch (error) {
     status.textContent = error.message;
   }

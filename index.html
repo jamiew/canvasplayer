@@ -14,12 +14,11 @@
   <meta property="og:description" content="Graffiti Markup Language playback on canvas.">
   <meta property="og:type" content="website">
   <meta name="twitter:card" content="summary">
-  <script src="examples/demo-theme.js"></script>
+  <script src="theme.js"></script>
 
   <!-- Before the page styles, so the page can override the controls. -->
   <link rel="stylesheet" href="gml-ui.css">
-  <link rel="stylesheet" href="examples/demo-theme.css">
-  <link rel="stylesheet" href="examples/demo-header.css">
+  <link rel="stylesheet" href="site.css">
 
   <style media="screen">
     :root {
@@ -120,7 +119,7 @@
     .switches { grid-area: switches; }
 
     .eyebrow {
-      font: 500 10px var(--sans);
+      font: 500 12px var(--sans);
       letter-spacing: 0.18em;
       text-transform: uppercase;
       color: var(--mute);
@@ -132,9 +131,9 @@
     #index .eyebrow { margin-bottom: 10px; }
     #index ul { list-style: none; margin: 0 0 14px; padding: 0; }
     #index li + li { margin-top: 2px; }
-    #index ul a { display: block; font-size: 13.5px; line-height: 1.5; text-decoration: none; }
+    #index ul a { display: block; font-size: 15.5px; line-height: 1.5; text-decoration: none; }
     #index ul a:hover { text-decoration: underline; }
-    #index .num { color: var(--mute); font: 400 11px var(--sans); }
+    #index .num { color: var(--mute); font: 400 13px var(--sans); }
     /* Weight changes widened a selected name and could wrap the phone row. */
     #index ul a[aria-current] { text-decoration: underline; }
     /* Keep the selection marker outside the text to avoid reflow. */
@@ -142,7 +141,7 @@
       content: "\2190"; position: absolute; margin-left: 8px; color: var(--mute); font-weight: 400;
     }
     #index .group { border-top: 1px solid var(--rule-soft); padding-top: 12px; margin-top: 12px; }
-    #index footer { margin-top: 18px; font-size: 12px; color: var(--mute); line-height: 1.5; }
+    #index footer { margin-top: 18px; font-size: 14px; color: var(--mute); line-height: 1.5; }
 
     /* --- stage ------------------------------------------------------------ */
 
@@ -161,19 +160,19 @@
     .stage .status {
       position: absolute; inset: 0; z-index: 2;
       display: grid; place-items: center;
-      font: 500 11px var(--sans); letter-spacing: 0.16em; text-transform: uppercase;
+      font: 500 13px var(--sans); letter-spacing: 0.16em; text-transform: uppercase;
       color: #8a8a8a; text-align: center; padding: 0 24px;
     }
     .stage .status[hidden] { display: none; }
 
     /* Sentence-length errors need normal case and spacing. */
     .stage .status.error {
-      font-size: 12.5px; letter-spacing: 0; text-transform: none;
+      font-size: 14.5px; letter-spacing: 0; text-transform: none;
       line-height: 1.4; max-width: 30em;
     }
 
     .notice {
-      margin: 8px 0 0; font-size: 12px; line-height: 1.4;
+      margin: 8px 0 0; font-size: 14px; line-height: 1.4;
       color: var(--mute);
     }
 
@@ -185,12 +184,12 @@
       margin-top: 12px;
       padding-top: 11px;
       border-top: 1px solid var(--rule-soft);
-      font: 400 11.5px/1.7 var(--sans);
+      font: 400 13.5px/1.7 var(--sans);
       color: var(--mute);
       font-variant-numeric: tabular-nums;
       overflow-wrap: anywhere;
       /* Reserve two lines; let longer metadata wrap without overflow. */
-      min-height: calc(12px + 2 * 1.7 * 11.5px);
+      min-height: calc(12px + 3.4em);
     }
     #readout b { color: var(--ink); font-weight: 500; }
     #readout .sep { color: var(--rule); margin: 0 7px; }
@@ -214,7 +213,7 @@
     footer.page {
       margin-top: 40px; padding-top: 18px;
       border-top: 1px solid var(--rule-soft);
-      font-size: 12.5px; line-height: 1.7; color: var(--mute);
+      font-size: 14.5px; line-height: 1.7; color: var(--mute);
       text-align: center;
     }
     footer.page a { color: var(--mute); }
@@ -267,12 +266,12 @@
   </div>
 
   <header class="masthead">
-    <h1>canvasplayer</h1>
+    <h1><a href="./">canvasplayer</a></h1>
     <p class="tagline">
       <a href="https://fffff.at/gml-week-graffiti-markup-language/">Graffiti Markup Language</a>
       playback. <a href="https://github.com/jamiew/canvasplayer">Source on GitHub</a>
     </p>
-    <p class="renderers"><a href="?renderer=canvas" data-renderer="canvas">2D Canvas</a><a href="?renderer=webgl" data-renderer="webgl">three.js/WebGL</a><a href="./examples/iframe.html">iframe embed</a></p>
+    <nav class="renderers" aria-label="Player mode"><a href="?renderer=canvas" data-renderer="canvas">2D Canvas</a><a href="?renderer=webgl" data-renderer="webgl">three.js/WebGL</a><a href="./embeds/">Embed</a></nav>
     <p class="notice" id="notice" role="status" hidden></p>
   </header>
 
@@ -317,44 +316,10 @@
   </footer>
 
   <script type="module">
-    import { parse } from './gml.js';
-    import { GmlPlayer } from './gml-player.js';
+    import { parse, GmlPlayer } from './gml-player.js';
     import { transport, switches, secs } from './gml-ui.js';
 
-    const API = 'https://000000book.com/data/';
-    let pending = 0;
-
-    // Accept a tag ID, "latest" or "random".
-    // JSONP is needed because the API has no CORS header.
-    function load(id) {
-      return new Promise((resolve, reject) => {
-        const name = '__gmlLoad' + (pending++);
-        const script = document.createElement('script');
-        const cleanup = () => { delete window[name]; script.remove(); };
-        let answered = false;
-
-        window[name] = data => {
-          answered = true;
-          cleanup();
-          if (!data || !data.gml) reject(new Error('No drawing data for tag ' + id));
-          else resolve(parse(data.gml, data.id || id));
-        };
-        script.onerror = () => {
-          cleanup();
-          // Script errors cannot distinguish missing tags from network failures.
-          reject(new Error('Could not load tag ' + id));
-        };
-        // A 200 error page can load without calling the JSONP callback.
-        // Reject it rather than leaving the promise pending.
-        script.onload = () => {
-          if (answered) return;
-          cleanup();
-          reject(new Error('Tag ' + id + ' did not return drawing data'));
-        };
-        script.src = API + encodeURIComponent(id) + '.json?callback=' + name;
-        document.body.appendChild(script);
-      });
-    }
+    import { loadTag } from './load-tag.js';
 
     const status = document.getElementById('status');
     const readout = document.getElementById('readout');
@@ -498,7 +463,7 @@
 
       // Ignore stale responses when tag requests finish out of order.
       const mine = ++wanted;
-      load(tagId).then(data => {
+      loadTag(tagId).then(json => parse(json.gml, json.id || tagId)).then(data => {
         if (mine !== wanted) return;
         if (data.strokes.length) show(data);
         else status.textContent = '#' + tagId + ' has no stroke data';

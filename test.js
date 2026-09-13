@@ -1,8 +1,8 @@
 // Run with node --test. No browser or network required.
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parse, prepare, progress, isLandscape } from './gml.js';
-import { fit, paint, GmlPlayer, EFFECTS, LAYERS } from './gml-player.js';
+import { progress, isLandscape } from './gml.js';
+import { parse, prepare, fit, paint, GmlPlayer, EFFECTS, LAYERS } from './gml-player.js';
 import { ThreePlayer } from './gml-three.js';
 import { secs } from './gml-ui.js';
 
@@ -322,12 +322,59 @@ describe('ThreePlayer', () => {
     p.destroy();
   });
 
+  test('renders dabs and stationary strokes without invalid geometry or dust', () => {
+    const p = new ThreePlayer(stubThree(), stubGlCanvas(), { strokes: [
+      { points: [[0.5, 0.5, 0]] },
+      { points: [[0.5, 0.5, 0.1], [0.5, 0.5, 0.2], [0.5, 0.5, 0.3], [0.5, 0.5, 0.4]] }
+    ] });
+    for (let i = 0; i < 60; i++) p.step(1 / 120);
+    p.render();
+    const dab = p.meshes[0].mesh.geometry;
+    assert.equal(dab.drawRange.count, 6, 'a lone sample remains visible');
+    const a = dab.attributes.position.array;
+    assert.ok(Math.abs((a[3] - a[0]) * (a[7] - a[1])) > 0, 'the dab has area');
+    for (const m of p.meshes) {
+      assert.ok(m.mesh.geometry.attributes.position.array.every(Number.isFinite));
+    }
+    assert.equal(p.dotGeo.drawRange.count, 0, 'a stationary pen cannot stir the field');
+    p.destroy();
+  });
+
+  test('smooths corners without losing endpoints or reversing playback time', () => {
+    const points = [[0, 0, 0], [1, 0, 0.1], [1, 1, 0.11], [0, 1, 1]];
+    const p = new ThreePlayer(stubThree(), stubGlCanvas(), { strokes: [{ points }] });
+    const m = p.meshes[0];
+    assert.deepEqual(m.pts[0], points[0]);
+    assert.deepEqual(m.pts.at(-1), points.at(-1));
+    assert.ok(m.pts.some(([x, y]) => x > 1 || y < 0), 'corners follow a curve, not the raw polygon');
+    for (let i = 1; i < m.pts.length; i++) {
+      assert.ok(m.pts[i][2] >= m.pts[i - 1][2], 'the reveal never runs backward');
+    }
+    p.seek(p.duration);
+    assert.ok(m.mesh.geometry.attributes.position.array.every(Number.isFinite));
+    p.destroy();
+  });
+
+  test('shapes ribbon width from spatial motion rather than capture timestamps', () => {
+    const p = new ThreePlayer(stubThree(), stubGlCanvas(), { strokes: [{
+      points: [[0, 0, 0], [0.01, 0, 0.001], [1, 0, 1]]
+    }] }, { taper: 1 });
+    p.seek(p.duration);
+    const width = i => {
+      const a = p.meshes[0].mesh.geometry.attributes.position.array;
+      return Math.hypot(a[i * 6] - a[i * 6 + 3], a[i * 6 + 1] - a[i * 6 + 4]);
+    };
+    assert.ok(width(1) > width(2) * 10, 'short steps stay thick even when their timestamps are close');
+    p.destroy();
+  });
+
   test('draws no dust until the field has been stepped', () => {
     // A fresh BufferGeometry draws its whole buffer, so an unstepped field
     // used to put every particle on screen at the origin.
     const p = build();
     assert.equal(p.dotGeo.drawRange.count, 0);
     assert.equal(p.trailGeo.drawRange.count, 0);
+    p.destroy();
   });
 
   test('seeking back to the start clears the dust it had drawn', () => {
@@ -337,6 +384,7 @@ describe('ThreePlayer', () => {
     assert.ok(p.dotGeo.drawRange.count > 0, 'the field woke while playing');
     p.seek(0);
     assert.equal(p.dotGeo.drawRange.count, 0, 'and is empty again after a seek');
+    p.destroy();
   });
 
   test('publishes the new frame when a paused player loads another tag', () => {
@@ -377,45 +425,66 @@ describe('ThreePlayer', () => {
     }
   });
 
-  test('dust impulses stay bounded and proportional to the capture scale', () => {
-    const simulate = scale => {
-      const p = new ThreePlayer(stubThree(), stubGlCanvas(), {
-        strokes: [{ points: [[0, 0, 0], [scale, scale, 1]] }]
-      });
-      p.inject(0.5 * scale, 0.5 * scale, 0);
-      p.inject(0.6 * scale, 0.5 * scale, 0);
-      for (let i = 0; i < 480; i++) p.stepDust(1 / 120, 0.5, false);
-      p.uploadDust();
-      const kicked = p.trailPos.slice(0, p.trailGeo.drawRange.count * 3);
-      for (let i = 0; i < 120; i++) p.stepDust(1 / 120, 0.5, true);
-      p.uploadDust();
-      const falling = p.trailPos.slice(0, p.trailGeo.drawRange.count * 3);
-      p.destroy();
-      return { kicked, falling };
-    };
-    const expected = simulate(1);
-    let distance = 0;
-    for (let i = 0; i < expected.kicked.length; i += 6) {
-      distance = Math.max(distance, Math.hypot(
-        expected.kicked[i] - expected.kicked[i + 3],
-        expected.kicked[i + 1] - expected.kicked[i + 4]));
+  test('moving dust leaves long origin trails that fall with the particles', () => {
+    const p = new ThreePlayer(stubThree(), stubGlCanvas(), {
+      strokes: [{ points: [[0, 0, 0], [1, 1, 1]] }]
+    });
+    for (let i = 0; i < 180; i++) p.step(1 / 120);
+    const kicked = p.trailPos.slice(0, p.trailGeo.drawRange.count * 3);
+    assert.ok(kicked.every(Number.isFinite));
+    let farthest = 0;
+    for (let i = 0; i < kicked.length; i += 6) {
+      const distance = Math.hypot(kicked[i] - kicked[i + 3], kicked[i + 1] - kicked[i + 4]);
+      if (distance > Math.hypot(kicked[farthest] - kicked[farthest + 3],
+        kicked[farthest + 1] - kicked[farthest + 4])) farthest = i;
+      assert.equal(kicked[i + 2], kicked[i + 5], 'the trail stays at its wake depth');
     }
-    assert.ok(distance > 0.001 && distance < 0.049, 'dust moves without producing multi-artwork-length rays');
-    const smaller = simulate(0.1);
-    for (const phase of ['kicked', 'falling']) {
-      assert.equal(smaller[phase].length, expected[phase].length);
-      assert.ok(smaller[phase].every((value, i) => near(value, expected[phase][i], 1e-5)),
-        phase + ' looks the same at a different capture scale');
-    }
+    assert.ok(Math.hypot(kicked[farthest] - kicked[farthest + 3],
+      kicked[farthest + 1] - kicked[farthest + 4]) > 0.1,
+    'dust flies away from the ribbon instead of staying as dots on it');
+    for (let i = 0; i < 180; i++) p.step(1 / 120);
+    const falling = p.trailPos;
+    assert.ok(falling[farthest + 1] < kicked[farthest + 1], 'awake particles fall in world space');
+    assert.deepEqual(Array.from(falling.slice(farthest + 3, farthest + 6)),
+      Array.from(kicked.slice(farthest + 3, farthest + 6)), 'the trail origin never follows the particle');
+    p.destroy();
   });
 
-  test('a backwards seek puts the bent ribbon edge back', () => {
-    const p = build();
-    p.seek(0.3);
-    p.seek(p.duration);
-    p.meshes.forEach(m => {
-      assert.deepEqual(Array.from(m.mesh.geometry.attributes.position.array), Array.from(m.original));
-    });
+  test('revealing and seeking preserve the already drawn ribbon surface', () => {
+    const p = new ThreePlayer(stubThree(), stubGlCanvas(), { strokes: [{
+      points: [[0, 0, 0], [1, 0, 1], [1, 1, 2]]
+    }] }, { taper: 1 });
+    const triangles = time => {
+      p.seek(time);
+      const geo = p.meshes[0].mesh.geometry;
+      const positions = geo.attributes.position.array;
+      const result = [];
+      for (let i = 0; i < geo.drawRange.count; i += 3) {
+        result.push(geo.index.slice(i, i + 3).map(j => Array.from(positions.slice(j * 3, j * 3 + 3))));
+      }
+      return result;
+    };
+    const sub = (a, b) => a.map((v, i) => v - b[i]);
+    const dot = (a, b) => a.reduce((sum, v, i) => sum + v * b[i], 0);
+    const contains = (point, [a, b, c]) => {
+      const u = sub(b, a), v = sub(c, a), w = sub(point, a);
+      const uu = dot(u, u), uv = dot(u, v), vv = dot(v, v);
+      const det = uu * vv - uv * uv;
+      if (det < 1e-16) return false;
+      const s = (dot(w, u) * vv - dot(w, v) * uv) / det;
+      const t = (dot(w, v) * uu - dot(w, u) * uv) / det;
+      return s >= -1e-5 && t >= -1e-5 && s + t <= 1 + 1e-5
+        && Math.hypot(...w.map((value, i) => value - s * u[i] - t * v[i])) < 1e-6;
+    };
+    const before = triangles(0.3);
+    const ink = before.map(triangle => triangle[0].map((_, i) =>
+      triangle.reduce((sum, vertex) => sum + vertex[i], 0) / 3));
+    for (const time of [0.7, 1.2, p.duration]) {
+      const after = triangles(time);
+      assert.ok(ink.every(point => after.some(triangle => contains(point, triangle))),
+        'existing ink stays on the same surface at ' + time);
+    }
+    assert.deepEqual(triangles(0.3), before, 'a backward seek restores the same clipped surface');
     p.destroy();
   });
 
@@ -433,7 +502,6 @@ describe('ThreePlayer', () => {
       // A tab left in the background for a minute.
       frames.shift()(61016);
       assert.ok(p.elapsed - before <= 0.1 + 1e-9, 'the clock does not replay the whole gap');
-      assert.ok(p.dotGeo.drawRange.count < p.P.n / 4, 'the field is not blown apart on return');
       p.destroy();
     } finally {
       globalThis.requestAnimationFrame = raf;

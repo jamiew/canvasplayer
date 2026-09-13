@@ -2,7 +2,7 @@
 <html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>canvasplayer: animation only</title>
+<title>canvasplayer: Animation</title>
 <style>
   html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #000; }
   .stage { width: 100%; height: 100%; }
@@ -10,23 +10,24 @@
   #status {
     position: absolute; inset: 0; display: grid; place-items: center;
     margin: 0; padding: 24px; color: #aaa; text-align: center;
-    font: 13px/1.5 "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
+    font: 15px/1.5 "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
   }
   #status[hidden] { display: none; }
 </style>
-<div class="stage"><canvas aria-label="Graffiti drawing from tag 100" role="img"></canvas></div>
+<div class="stage"><canvas aria-label="Graffiti drawing" role="img"></canvas></div>
 <p id="status" role="status">Loading tag</p>
 <script type="module">
-  import { parse } from '../gml.js';
-  import { GmlPlayer } from '../gml-player.js';
+  import { parse, GmlPlayer } from '../gml-player.js';
+  import { loadEmbedTag } from '../load-tag.js';
 
   const status = document.getElementById('status');
   try {
-    // Bundled data needs no external API or CORS setup.
-    const response = await fetch('./tag.json');
-    if (!response.ok) throw new Error('Could not load tag: HTTP ' + response.status);
-    const json = await response.json();
-    const player = new GmlPlayer(document.querySelector('canvas'), parse(json.gml, json.id));
+    const json = await loadEmbedTag();
+    const tag = parse(json.gml, json.id);
+    if (!tag.strokes.length) throw new Error('Tag #' + tag.id + ' has no stroke data');
+    const canvas = document.querySelector('canvas');
+    canvas.setAttribute('aria-label', 'Animated drawing from tag ' + tag.id);
+    const player = new GmlPlayer(canvas, tag);
     const motion = matchMedia('(prefers-reduced-motion: reduce)');
     const updateMotion = () => {
       if (motion.matches) {

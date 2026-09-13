@@ -3,11 +3,15 @@
 GML playback on canvas. No build or dependencies.
 
 - `gml.js`: parse and prepare. Pure. No DOM, no canvas.
-- `gml-player.js`: `paint()` and `GmlPlayer`. The 2D canvas renderer.
+- `gml-player.js`: main entry. Exports `parse`, `prepare`, `paint()` and `GmlPlayer`.
 - `gml-ui.js` and `gml-ui.css`: controls. They import neither renderer.
 - `gml-three.js`: optional WebGL renderer. Shares preparation code but takes
   `THREE` as a constructor argument. The demo vendors r160; npm excludes it.
-- `index.html`: demo, JSONP loader and page setup.
+- `index.html`: demo and page setup.
+- `load-tag.js`: site-only JSONP loader and bundled embed tag selection.
+  Returns raw tag envelopes; pages parse them. Excluded from npm.
+- `site.css` and `theme.js`: shared site styles and theme, not library controls.
+- `embeds/`: gallery, player, animation, static drawing and bundled tag data.
 - `test.js`: `node --test`. No browser, no network.
 
 ## Rules
