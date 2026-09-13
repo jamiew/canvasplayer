@@ -44,17 +44,19 @@
     /* Layout fullscreen works in iframes and preserves browser chrome.
        ?fullscreen restores it on reload; Escape exits. */
     :root[data-fullscreen] body { max-width: none; padding: 0; height: 100vh; overflow: hidden; background: #000; }
-    :root[data-fullscreen] .masthead,
+    :root[data-fullscreen] .masthead > :not(.title-row),
+    :root[data-fullscreen] .title-row h1,
+    :root[data-fullscreen] #theme,
     :root[data-fullscreen] #index,
     :root[data-fullscreen] #readout,
     :root[data-fullscreen] footer.page { display: none; }
+    :root[data-fullscreen] .masthead,
+    :root[data-fullscreen] .title-row { display: contents; }
     :root[data-fullscreen] .layout { display: block; }
     :root[data-fullscreen] .deck { width: 100vw; }
     :root[data-fullscreen] .stage { width: 100vw; height: 100vh; aspect-ratio: auto; border: 0; }
     :root[data-fullscreen] .topbar { position: fixed; top: 10px; right: 14px; z-index: 4; }
-    /* These buttons sit on the black drawing, not on the page's paper. */
     :root[data-fullscreen] .topbar {
-      --ink: #fff; --mute: #aaa; --rule: #555;
       background: #000d; border-radius: 6px;
     }
 
@@ -241,6 +243,9 @@
 </head>
 <body>
 
+  <header class="masthead">
+    <div class="title-row">
+    <h1><a href="./">canvasplayer</a></h1>
   <div class="topbar">
     <button id="fullscreen" type="button" aria-label="Fill the window" aria-pressed="false">
       <svg class="grow" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -264,9 +269,8 @@
       </svg>
     </button>
   </div>
+    </div>
 
-  <header class="masthead">
-    <h1><a href="./">canvasplayer</a></h1>
     <p class="tagline">
       <a href="https://fffff.at/gml-week-graffiti-markup-language/">Graffiti Markup Language</a>
       playback. <a href="https://github.com/jamiew/canvasplayer">Source on GitHub</a>
