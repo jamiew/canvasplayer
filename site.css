@@ -44,11 +44,7 @@ body, .stage, .gml-transport .rail, .gml-transport .fill {
   }
   .mode-row .renderers { grid-column: 2; }
   .mode-row .topbar { grid-column: 3; grid-row: 1; justify-self: start; }
-  .mode-row .mode-description { grid-column: 2; }
 }
-
-.mode-description { margin: 0; color: var(--mute); font: 400 13px/1.5 var(--sans); }
-.mode-description a { color: inherit; }
 
 #theme,
 #fullscreen {

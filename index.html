@@ -55,7 +55,6 @@
     :root[data-fullscreen] body { max-width: none; padding: 0; height: 100vh; overflow: hidden; background: #000; }
     :root[data-fullscreen] .masthead > :not(.mode-row),
     :root[data-fullscreen] .mode-row .renderers,
-    :root[data-fullscreen] .mode-description,
     :root[data-fullscreen] #theme,
     :root[data-fullscreen] #index,
     :root[data-fullscreen] #readout,
@@ -262,9 +261,7 @@
       playback. <a href="https://github.com/jamiew/canvasplayer">Source on GitHub</a>
     </p>
     <div class="mode-row">
-    <nav class="renderers" aria-label="Player mode"><a href="?renderer=canvas" data-renderer="canvas">Canvas (2D)</a><a href="?renderer=webgl" data-renderer="webgl">Threejs/WebGL (3D)</a><a href="./embeds/">Embed player</a></nav>
-    <p class="mode-description" data-description="canvas">Simple 2D drawing with <a href="https://github.com/jamiew/canvasplayer#drawing-options">ink styles and effects</a>.</p>
-    <p class="mode-description" data-description="webgl" hidden>3D playback in the style of Evan Roth’s <a href="https://fffff.at/graffiti-analysis-2-0-official-launch/">Dust Tag</a> / <a href="https://www.evan-roth.com/~/works/graffiti-analysis/">Graffiti Analysis</a>.</p>
+    <nav class="renderers" aria-label="Player mode"><a href="?renderer=canvas" data-renderer="canvas" title="Simple 2D drawing with ink styles and effects.">Canvas (2D)</a><a href="?renderer=webgl" data-renderer="webgl" title="3D playback in the style of Evan Roth’s Dust Tag / Graffiti Analysis.">Threejs/WebGL (3D)</a><a href="./embeds/" title="Embed animation, a full player, or a static drawing on your site.">Embed player</a></nav>
   <div class="topbar">
     <button id="fullscreen" type="button" aria-label="Fill the window" aria-pressed="false">
       <svg class="grow" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -367,9 +364,6 @@
 
     document.querySelectorAll('.renderers a[data-renderer]').forEach(a => {
       if (a.dataset.renderer === renderer) a.setAttribute('aria-current', 'page');
-    });
-    document.querySelectorAll('[data-description]').forEach(description => {
-      description.hidden = description.dataset.description !== renderer;
     });
 
     // Reuse the player and controls so tag changes preserve settings.
