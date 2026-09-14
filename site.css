@@ -47,7 +47,8 @@ body, .stage, .gml-transport .rail, .gml-transport .fill {
 }
 
 #theme,
-#fullscreen {
+#fullscreen,
+#controls {
   position: relative;
   width: 30px; height: 30px; padding: 0;
   display: grid; place-items: center;
@@ -55,9 +56,11 @@ body, .stage, .gml-transport .rail, .gml-transport .fill {
   color: var(--mute); cursor: pointer;
 }
 #theme:hover,
-#fullscreen:hover { color: var(--ink); border-color: var(--rule); }
+#fullscreen:hover,
+#controls:hover { color: var(--ink); border-color: var(--rule); }
 #theme svg,
-#fullscreen svg {
+#fullscreen svg,
+#controls svg {
   grid-area: 1 / 1;
   width: 16px; height: 16px;
   transition: opacity .2s ease, transform .3s cubic-bezier(.4, 0, .2, 1);
@@ -68,7 +71,7 @@ body, .stage, .gml-transport .rail, .gml-transport .fill {
 :root[data-theme="dark"] #theme .moon { opacity: 1; transform: none; }
 
 @media (prefers-reduced-motion: reduce) {
-  body, .stage, #theme svg, #fullscreen svg { transition: none; }
+  body, .stage, #theme svg, #fullscreen svg, #controls svg { transition: none; }
 }
 
 .masthead { text-align: center; margin-bottom: 26px; }

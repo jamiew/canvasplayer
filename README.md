@@ -100,10 +100,10 @@ for straight segments with `player.setEffect('smooth', false)`. `GmlPlayer`
 leaves it off unless enabled. For `paint()`, pass `effects: { smooth: true }`.
 Dyna has its own spring motion. Both keep earlier ink fixed as playback advances.
 
-The demo's fullscreen button fills the window without the browser fullscreen
-API. Link with `?fullscreen=1`; Escape exits. On narrow or short screens,
-leave fullscreen to reach the drawing options. Fullscreen always uses dark
-colors; leaving it restores your selected page theme.
+Fullscreen fills the window without the browser fullscreen API. Link with
+`?fullscreen=1`; Escape exits. Controls start hidden. The controls button shows
+or hides playback controls and right-hand drawing settings on any screen size.
+Fullscreen uses dark colors; leaving it restores your selected page theme.
 
 ## API
 

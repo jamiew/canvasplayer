@@ -52,7 +52,7 @@
 
     /* Layout fullscreen works in iframes and preserves browser chrome.
        ?fullscreen restores it on reload; Escape exits. */
-    :root[data-fullscreen] body { max-width: none; padding: 0; height: 100vh; overflow: hidden; background: #000; }
+    :root[data-fullscreen] body { max-width: none; padding: 0; height: 100vh; height: 100dvh; overflow: hidden; background: #000; }
     :root[data-fullscreen] .masthead > :not(.mode-row),
     :root[data-fullscreen] .mode-row .renderers,
     :root[data-fullscreen] #theme,
@@ -63,11 +63,16 @@
     :root[data-fullscreen] .mode-row { display: contents; }
     :root[data-fullscreen] .layout { display: block; }
     :root[data-fullscreen] .deck { width: 100vw; }
-    :root[data-fullscreen] .stage { width: 100vw; height: 100vh; aspect-ratio: auto; border: 0; }
+    :root[data-fullscreen] .stage { width: 100vw; height: 100vh; height: 100dvh; aspect-ratio: auto; border: 0; }
     :root[data-fullscreen] .topbar { position: fixed; top: 10px; right: 14px; z-index: 4; }
     :root[data-fullscreen] .topbar {
       background: #000d; border-radius: 6px;
     }
+    #controls { display: none; }
+    :root[data-fullscreen] #controls { display: grid; }
+    :root[data-fullscreen] #controls,
+    :root[data-fullscreen] #fullscreen { width: 44px; height: 44px; }
+    #controls[aria-expanded="true"] { color: var(--ink); border-color: var(--rule); }
 
     :root[data-fullscreen] .transport,
     :root[data-fullscreen] .switches {
@@ -83,26 +88,26 @@
       width: min(640px, calc(100vw - 36px));
     }
     :root[data-fullscreen] .switches {
-      top: 14px; left: 14px;
+      top: 66px; right: 14px;
       width: min(320px, calc(100vw - 28px));
-      /* Keep the panel inside short windows. */
-      max-height: calc(100vh - 96px);
+      /* Leave room for the topbar and transport, including short windows. */
+      max-height: calc(100vh - 180px);
+      max-height: calc(100dvh - 180px);
       overflow-y: auto;
     }
 
-    /* Hide settings on small screens so they do not cover the drawing. */
-    @media (max-width: 700px), (max-height: 500px) {
-      :root[data-fullscreen] .switches { display: none; }
-    }
+    /* Fullscreen starts clear; one button reveals settings and playback. */
+    :root[data-fullscreen]:not([data-controls]) .switches,
+    :root[data-fullscreen]:not([data-controls]) .transport { display: none; }
 
     /* Reserve transport height below the drawing in short landscape views. */
     @media (max-height: 500px) {
-      :root[data-fullscreen] .deck {
+      :root[data-fullscreen][data-controls] .deck {
         display: flex; flex-direction: column; gap: 12px;
-        height: 100vh; height: 100dvh; padding: 48px 18px 12px;
+        height: 100vh; height: 100dvh; padding: 66px 18px 12px;
       }
-      :root[data-fullscreen] .stage { flex: 1; min-height: 0; width: 100%; height: auto; }
-      :root[data-fullscreen] .transport {
+      :root[data-fullscreen][data-controls] .stage { flex: 1; min-height: 0; width: 100%; height: auto; }
+      :root[data-fullscreen][data-controls] .transport {
         position: static; flex: none; transform: none;
         width: min(640px, 100%); margin: 0 auto;
       }
@@ -263,6 +268,13 @@
     <div class="mode-row">
     <nav class="renderers" aria-label="Player mode"><a href="?renderer=canvas" data-renderer="canvas" title="Simple 2D drawing with ink styles and effects.">Canvas (2D)</a><a href="?renderer=webgl" data-renderer="webgl" title="3D playback in the style of Evan Roth’s Dust Tag / Graffiti Analysis.">Threejs/WebGL (3D)</a><a href="./embeds/" title="Embed animation, a full player, or a static drawing on your site.">Embed player</a></nav>
   <div class="topbar">
+    <button id="controls" type="button" aria-label="Show controls" title="Show controls"
+            aria-expanded="false" aria-controls="transport switches">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" aria-hidden="true">
+        <path d="M3 6h18M3 12h18M3 18h18"/>
+      </svg>
+    </button>
     <button id="fullscreen" type="button" aria-label="Fill the window" aria-pressed="false">
       <svg class="grow" viewBox="0 0 24 24" fill="none" stroke="currentColor"
            stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -377,11 +389,22 @@
 
     // Apply the fullscreen layout and keep its URL in sync.
     const fullBtn = document.getElementById('fullscreen');
+    const controlsBtn = document.getElementById('controls');
+
+    function setControls(open) {
+      root.toggleAttribute('data-controls', open);
+      controlsBtn.setAttribute('aria-expanded', String(open));
+      const label = open ? 'Hide controls' : 'Show controls';
+      controlsBtn.setAttribute('aria-label', label);
+      controlsBtn.title = label;
+    }
 
     function setFull(on) {
+      if (!on && root.hasAttribute('data-fullscreen')) fullBtn.focus();
       root.toggleAttribute('data-fullscreen', on);
       fullBtn.setAttribute('aria-pressed', String(on));
       fullBtn.setAttribute('aria-label', on ? 'Leave fullscreen' : 'Fill the window');
+      setControls(false);
       const url = new URL(document.location);
       if (on) url.searchParams.set('fullscreen', '1');
       else url.searchParams.delete('fullscreen');
@@ -390,6 +413,7 @@
     }
 
     fullBtn.addEventListener('click', () => setFull(!root.hasAttribute('data-fullscreen')));
+    controlsBtn.addEventListener('click', () => setControls(!root.hasAttribute('data-controls')));
     window.addEventListener('keydown', e => {
       if (e.key === 'Escape' && root.hasAttribute('data-fullscreen')) setFull(false);
     });
